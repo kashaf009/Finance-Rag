@@ -98,6 +98,43 @@ class AppSettings:
     )
     qdrant_timeout: float = field(default_factory=lambda: env_float("QDRANT_TIMEOUT", 60.0))
 
+    llm_model: str = field(default_factory=lambda: env_str("LLM_MODEL", "gemini-2.5-flash"))
+    llm_base_url: str = field(
+        default_factory=lambda: env_str("LLM_BASE_URL", "") or env_str("EURI_BASE_URL", "")
+    )
+    llm_api_key: str | None = field(
+        default_factory=lambda: env_str("LLM_API_KEY", "") or env_str("EURON_API_KEY", "") or None
+    )
+    llm_grader_model: str = field(
+        default_factory=lambda: env_str("LLM_GRADER_MODEL", "") or env_str("LLM_MODEL", "")
+    )
+    llm_temperature: float = field(default_factory=lambda: env_float("LLM_TEMPERATURE", 0.1))
+    llm_max_completion_tokens: int = field(
+        default_factory=lambda: env_int("LLM_MAX_COMPLETION_TOKENS", 2048)
+    )
+    llm_timeout: float = field(default_factory=lambda: env_float("LLM_TIMEOUT", 120.0))
+    llm_max_retries: int = field(default_factory=lambda: env_int("LLM_MAX_RETRIES", 3))
+    llm_reasoning_effort: str = field(
+        default_factory=lambda: env_str("LLM_REASONING_EFFORT", "none")
+    )
+    llm_image_max_edge: int = field(default_factory=lambda: env_int("LLM_IMAGE_MAX_EDGE", 768))
+    llm_image_quality: int = field(default_factory=lambda: env_int("LLM_IMAGE_QUALITY", 70))
+    llm_max_pages: int = field(default_factory=lambda: env_int("LLM_MAX_PAGES", 5))
+
+    rag_top_k: int = field(default_factory=lambda: env_int("RAG_TOP_K", 5))
+    rag_relevance_threshold: float = field(
+        default_factory=lambda: env_float("RAG_RELEVANCE_THRESHOLD", 0.35)
+    )
+    rag_max_rewrites: int = field(default_factory=lambda: env_int("RAG_MAX_REWRITES", 2))
+
+    api_host: str = field(default_factory=lambda: env_str("API_HOST", "127.0.0.1"))
+    api_port: int = field(default_factory=lambda: env_int("API_PORT", 8000))
+    api_cors_origins: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            item.strip() for item in env_str("API_CORS_ORIGINS", "").split(",") if item.strip()
+        )
+    )
+
 
 _settings: AppSettings | None = None
 

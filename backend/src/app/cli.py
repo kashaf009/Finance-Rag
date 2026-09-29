@@ -15,7 +15,9 @@ from app.core.logging import setup_logging
 from app.embed import get_embedder
 from app.imaging.encode import base64_to_bytes, bytes_to_base64, image_to_jpeg_bytes
 from app.imaging.normalize import normalize_page
+from app.llm import LLMConfigError
 from app.models import PageArtifact, RenderedPage
+from app.rag import RagError, RagService
 from app.render.pdf import iter_page_chunks, page_count
 from app.vector import QdrantStore, VectorPoint, page_payload, page_point_id
 
@@ -57,6 +59,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
     store_info = sub.add_parser("qdrant-info", help="Show Qdrant collection status")
     store_info.add_argument("--collection", default=None)
+
+    chat = sub.add_parser("chat", help="Ask a question using the Self-RAG pipeline")
+    chat.add_argument("question")
+    chat.add_argument("--top-k", type=int, default=None, help="Pages to retrieve")
+    chat.add_argument("--json", action="store_true", help="Emit JSON output")
+    chat.add_argument("--save-dir", type=Path, default=None, help="Write cited pages here")
+
+    serve = sub.add_parser("serve", help="Run the FastAPI server")
+    serve.add_argument("--host", default=None)
+    serve.add_argument("--port", type=int, default=None)
+    serve.add_argument("--reload", action="store_true")
     return parser
 
 
@@ -290,6 +303,67 @@ def _search(args: argparse.Namespace) -> int:
     return 0
 
 
+def _chat(args: argparse.Namespace) -> int:
+    try:
+        result = RagService().answer(args.question, top_k=args.top_k)
+    except (RagError, LLMConfigError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "question": result.question,
+                    "query": result.query,
+                    "answer": result.answer,
+                    "supported": result.supported,
+                    "rewrites": result.rewrites,
+                    "pages_considered": result.pages_considered,
+                    "citations": [
+                        {
+                            "doc_id": citation.doc_id,
+                            "page_number": citation.page_number,
+                            "score": citation.score,
+                            "image": citation.image,
+                        }
+                        for citation in result.citations
+                    ],
+                    "trace": result.trace,
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    print(f"Q: {result.question}")
+    print(f"   query={result.query!r} rewrites={result.rewrites} pages={result.pages_considered}")
+    print(f"A: {result.answer}")
+    if result.citations:
+        print("Citations:")
+        for citation in result.citations:
+            print(f"  p{citation.page_number} {citation.doc_id} score={citation.score:.3f}")
+    if args.save_dir is not None and result.citations:
+        args.save_dir.mkdir(parents=True, exist_ok=True)
+        for citation in result.citations:
+            name = f"{citation.doc_id}_p{citation.page_number:04d}.jpg"
+            (args.save_dir / name).write_bytes(base64_to_bytes(citation.image.partition(",")[2]))
+    for step in result.trace:
+        print(f"  trace: {step}")
+    return 0
+
+
+def _serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    cfg = get_settings()
+    host = args.host or cfg.api_host
+    port = args.port or cfg.api_port
+    print(f"Serving Finance RAG API on http://{host}:{port} (docs at /docs)")
+    uvicorn.run("app.main:app", host=host, port=port, reload=args.reload)
+    return 0
+
+
 def _qdrant_info(args: argparse.Namespace) -> int:
     cfg = _settings_with(args)
     store = QdrantStore(cfg)
@@ -310,6 +384,8 @@ _COMMANDS = {
     "index": _index,
     "search": _search,
     "qdrant-info": _qdrant_info,
+    "chat": _chat,
+    "serve": _serve,
 }
 
 

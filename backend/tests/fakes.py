@@ -48,3 +48,44 @@ class FakeModels:
 class FakeClient:
     def __init__(self, models: FakeModels) -> None:
         self.models = models
+
+
+class FakeLLM:
+    """Returns canned replies in order and records the messages it received."""
+
+    def __init__(self, replies: Sequence[str] | None = None, default: str = "") -> None:
+        self.replies = list(replies or [])
+        self.default = default
+        self.calls: list[list[object]] = []
+
+    def invoke(self, messages: list[object]) -> str:
+        self.calls.append(messages)
+        if self.replies:
+            return self.replies.pop(0)
+        return self.default
+
+
+class FakeHit:
+    def __init__(self, score: float, payload: dict[str, object]) -> None:
+        self.score = score
+        self.payload = payload
+
+
+class FakeStore:
+    def __init__(self, pages: Sequence[FakeHit] | None = None) -> None:
+        self.pages = list(pages or [])
+        self.queries: list[list[float]] = []
+        self.collection = "fake_pages"
+
+    def search(self, vector: list[float], *, limit: int) -> list[FakeHit]:
+        self.queries.append(vector)
+        return self.pages[:limit]
+
+    def exists(self) -> bool:
+        return bool(self.pages)
+
+    def count(self) -> int:
+        return len(self.pages)
+
+    def vector_size(self) -> int:
+        return 1024
