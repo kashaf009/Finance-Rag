@@ -1,2 +1,8 @@
 .env
 node_modules
+
+# Backend artifacts
+backend/storage/
+backend/.venv/
+__pycache__/
+*.py[oc]
