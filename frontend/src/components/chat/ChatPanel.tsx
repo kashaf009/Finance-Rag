@@ -259,7 +259,8 @@ function Turn({ turn, elapsed }: { turn: ChatTurn; elapsed: number }) {
           {/* The API has no streaming, so stage-by-stage progress cannot be
               shown. The elapsed clock is real; nothing else is claimed. */}
           <p className="text-[11px] font-sans text-ivory/40 mt-1.5">
-            Retrieval, grading and generation run server-side. This typically takes 20–35 seconds.
+            Retrieval, grading and generation run server-side. Duration depends on the selected
+            provider — the clock above is the only figure shown because it is the only one measured.
           </p>
         </div>
       </div>
