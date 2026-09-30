@@ -1,3 +1,5 @@
+// @vitest-environment node
+// Hits the live backend over real fetch; jsdom has no usable fetch.
 import { describe, expect, it } from 'vitest'
 import { ApiError, chat, getCollections, getHealth, search } from '@/lib/api'
 import { LIMITS, NOT_FOUND_ANSWER } from '@/types/api'
