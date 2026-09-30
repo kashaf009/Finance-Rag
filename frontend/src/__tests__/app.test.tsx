@@ -77,8 +77,12 @@ describe('app shell', () => {
 
   it('uses the SELF-RAG wordmark, not the mock AUREUS brand', () => {
     renderApp()
-    expect(screen.getByText('FINANCE RAG')).toBeInTheDocument()
-    expect(screen.getByText('SELF-RAG')).toBeInTheDocument()
+    // Scoped to the banner because the footer repeats the wordmark by design,
+    // which makes a screen-level query ambiguous. The AUREUS check stays
+    // screen-level on purpose: that name must not appear anywhere.
+    const nav = within(screen.getByRole('banner'))
+    expect(nav.getByText('FINANCE RAG')).toBeInTheDocument()
+    expect(nav.getByText('SELF-RAG')).toBeInTheDocument()
     expect(screen.queryByText(/AUREUS/i)).not.toBeInTheDocument()
   })
 })

@@ -7,7 +7,7 @@ import { ChatPanel } from '@/components/chat/ChatPanel'
  */
 export function Chat() {
   return (
-    <div className="on-noir relative min-h-screen bg-noir text-ivory pt-20 flex flex-col">
+    <div className="on-noir relative flex-1 bg-noir text-ivory pt-20 flex flex-col">
       <AmbientDark />
       <div className="relative z-10 flex-1 flex flex-col justify-center py-10">
         <div className="max-w-7xl mx-auto px-6 w-full">
