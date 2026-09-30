@@ -130,6 +130,23 @@ export const LIMITS = {
 } as const
 
 /**
+ * GET /document/pages — the page renders the ingest already wrote to disk.
+ * Source: backend/src/app/api/schemas.py DocumentPagesResponse
+ *
+ * Every field is measured per request. The nulls are real states meaning the
+ * ingest has not run for this document, so the client must render an honest
+ * empty state rather than substitute a plausible number.
+ */
+export interface DocumentPagesResponse {
+  doc_id: string | null
+  pdf_filename: string | null
+  pdf_byte_size: number | null
+  page_count: number
+  page_width: number | null
+  page_height: number | null
+}
+
+/**
  * The exact refusal the backend returns when supported is false.
  * Source: backend/src/app/rag/service.py NOT_FOUND_ANSWER
  */

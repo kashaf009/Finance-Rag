@@ -1,8 +1,10 @@
 import { ExternalLink, MessageSquare } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 
 import { useIndexReady } from '@/hooks/useHealth'
 import { usePreviewHit } from '@/hooks/usePreviewHit'
+import { getDocumentPages } from '@/lib/api'
 import { DOCUMENT, PREVIEW_QUERY, formatSize } from '@/lib/document'
 import { formatPage, formatScore } from '@/lib/citations'
 import { PagePreview } from '@/components/hero/PagePreview'
@@ -20,6 +22,13 @@ import { PagePreview } from '@/components/hero/PagePreview'
 export function DocumentCard() {
   const { points, ready, isPending: healthPending, isError: healthError } = useIndexReady()
   const { top, hits, scanning } = usePreviewHit()
+  // Measured identity, not the hardcoded constant. Shares the reader's query
+  // key, so landing on /document costs no extra round trip.
+  const { data: document } = useQuery({
+    queryKey: ['document-pages'],
+    queryFn: ({ signal }) => getDocumentPages(signal),
+    staleTime: Infinity,
+  })
 
   return (
     <div
@@ -44,10 +53,16 @@ export function DocumentCard() {
           </span>
         </div>
         <div className="mt-2.5 flex items-baseline justify-between gap-3">
-          <div className="text-xs font-mono font-bold text-noir truncate">{DOCUMENT.filename}</div>
-          <div className="text-[11px] font-mono text-noir/60 shrink-0">
-            {formatSize(DOCUMENT.sizeBytes)}
+          <div className="text-xs font-mono font-bold text-noir truncate">
+            {document?.pdf_filename ?? DOCUMENT.filename}
           </div>
+          {/* Only when the backend actually measured it. A size we cannot
+              verify is a number we should not print. */}
+          {document?.pdf_byte_size != null && (
+            <div className="text-[11px] font-mono text-noir/60 shrink-0">
+              {formatSize(document.pdf_byte_size)}
+            </div>
+          )}
         </div>
         <div className="text-sm font-serif font-semibold text-noir mt-1">
           {healthError

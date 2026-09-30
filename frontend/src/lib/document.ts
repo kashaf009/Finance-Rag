@@ -1,20 +1,22 @@
 /**
- * Static facts about the indexed document.
+ * Identity of the indexed document, used as a fallback label before the
+ * backend has been asked.
  *
- * These are properties of a specific file on disk, not live metrics. The page
- * count and readiness are NOT here — those come from GET /health, because a
- * stale hardcoded page count is exactly the kind of lie this build avoids.
+ * `sizeBytes` used to live here and it was wrong to be here: a byte count
+ * baked into the bundle is a claim the frontend cannot check, and it goes stale
+ * the moment the document is re-ingested. `GET /document/pages` now reports
+ * `pdf_filename` and `pdf_byte_size` measured from disk, and that is what the
+ * hero card and the reader display. This constant only covers the window
+ * before the response lands.
  *
- * `sizeBytes` is measured from docs/JPM_SE_Annual_2023_140.pdf. Step 13 adds
- * GET /documents/{doc_id}/pdf; that route reports the size authoritatively and
- * this constant should be dropped in favour of it.
+ * The page count and readiness are not here either — those come from
+ * `GET /health` and `GET /document/pages`, for the same reason.
  */
 export const DOCUMENT = {
   /** Qdrant `doc_id` — the PDF filename stem. Matches Citation.doc_id. */
   docId: 'JPM_SE_Annual_2023_140',
   /** The real file on disk, which is what the backend serves. */
   filename: 'JPM_SE_Annual_2023_140.pdf',
-  sizeBytes: 1_064_053,
 } as const
 
 /**
@@ -26,7 +28,7 @@ export const DOCUMENT = {
  */
 export const PREVIEW_QUERY = 'net interest income'
 
-/** 1,064,053 bytes as MiB, to one decimal. */
+/** Bytes as MiB, to two decimals. The argument must be a measured value. */
 export function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }

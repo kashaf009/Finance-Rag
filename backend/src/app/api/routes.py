@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
+from PIL import Image
 
 from app.api.deps import get_rag_service, get_settings_dep, get_store
 from app.api.schemas import (
@@ -10,6 +13,7 @@ from app.api.schemas import (
     ChatResponse,
     CitationModel,
     CollectionInfo,
+    DocumentPagesResponse,
     HealthResponse,
     LLMProviderRequest,
     LLMProviderResponse,
@@ -143,4 +147,93 @@ def chat(payload: ChatRequest, service: ServiceDep) -> ChatResponse:
         pages_considered=result.pages_considered,
         citations=_citations(result.citations),
         trace=result.trace,
+    )
+
+
+def _page_dir(settings: AppSettings) -> Path | None:
+    """The one document's render directory, or None if the ingest has not run.
+
+    Only one document is indexed, so a single directory is the whole story.
+    """
+    root = settings.storage_dir
+    if not root.is_dir():
+        return None
+    for entry in sorted(root.iterdir()):
+        if entry.is_dir():
+            return entry
+    return None
+
+
+def _page_path(doc_dir: Path, page_number: int) -> Path | None:
+    """Resolve a page number to a file, or None.
+
+    The name is built from an int, so no caller-supplied string reaches the
+    filesystem and traversal is structurally impossible. Out-of-range numbers
+    simply fail the is_file() check.
+    """
+    if page_number < 1:
+        return None
+    path = doc_dir / f"page_{page_number:04d}.jpg"
+    return path if path.is_file() else None
+
+
+@router.get("/document/pages", response_model=DocumentPagesResponse)
+def document_pages(settings: SettingsDep) -> DocumentPagesResponse:
+    """List the page renders the ingest already wrote.
+
+    Degrades instead of raising, like /health: a missing ingest is a real state
+    the client must be able to render honestly, not a 500.
+    """
+    doc_dir = _page_dir(settings)
+    if doc_dir is None:
+        return DocumentPagesResponse(
+            doc_id=None,
+            pdf_filename=None,
+            pdf_byte_size=None,
+            page_count=0,
+            page_width=None,
+            page_height=None,
+        )
+
+    page_files = sorted(doc_dir.glob("page_*.jpg"))
+    pdf_path = settings.docs_dir / f"{doc_dir.name}.pdf"
+    has_pdf = pdf_path.is_file()
+
+    width = height = None
+    if page_files:
+        with Image.open(page_files[0]) as im:
+            width, height = im.size
+
+    return DocumentPagesResponse(
+        doc_id=doc_dir.name,
+        pdf_filename=pdf_path.name if has_pdf else None,
+        pdf_byte_size=pdf_path.stat().st_size if has_pdf else None,
+        page_count=len(page_files),
+        page_width=width,
+        page_height=height,
+    )
+
+
+@router.get("/document/page/{page_number}", response_class=FileResponse)
+def document_page(page_number: int, settings: SettingsDep) -> FileResponse:
+    """Serve one page render at full resolution.
+
+    Served from disk rather than the Qdrant payload on purpose: the payload
+    copy is already downscaled to llm_image_max_edge, so this is the only route
+    that returns the render the ingest actually produced.
+    """
+    doc_dir = _page_dir(settings)
+    if doc_dir is None:
+        raise HTTPException(
+            status_code=404, detail="No rendered pages are available on disk."
+        )
+    path = _page_path(doc_dir, page_number)
+    if path is None:
+        raise HTTPException(
+            status_code=404, detail=f"Page {page_number} is not available."
+        )
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )

@@ -2,6 +2,7 @@ import type {
   ChatRequest,
   ChatResponse,
   CollectionInfo,
+  DocumentPagesResponse,
   HealthResponse,
   HttpErrorBody,
   LLMProviderRequest,
@@ -16,6 +17,8 @@ const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 /** Local inference only. The backend has no streaming. */
 const HEALTH_TIMEOUT_MS = 8_000
 const SEARCH_TIMEOUT_MS = 60_000
+/** A local scandir plus one PIL header read. No reason for this to be slow. */
+const DOCUMENT_TIMEOUT_MS = 8_000
 /**
  * POST /chat blocks for the whole LangGraph run, and how long that takes
  * depends on the active provider. Measured on this machine: euron
@@ -205,5 +208,41 @@ export const setLLMProvider = (body: LLMProviderRequest, signal?: AbortSignal) =
     signal,
   })
 
-export const api = { getHealth, getCollections, search, chat, setLLMProvider }
+/**
+ * GET /document/pages — the page inventory, read from the ingest's own output.
+ *
+ * Reads the filesystem, not Qdrant, so this still works when the vector store
+ * is down. Degrades to `page_count: 0` rather than raising, so a missing ingest
+ * is renderable as an honest empty state.
+ */
+export const getDocumentPages = (signal?: AbortSignal) =>
+  request<DocumentPagesResponse>('/document/pages', {
+    method: 'GET',
+    timeoutMs: DOCUMENT_TIMEOUT_MS,
+    signal,
+  })
+
+/**
+ * URL for one page render at full resolution.
+ *
+ * Deliberately a URL and not a fetch: returning a URL lets the browser handle
+ * caching, range/lazy loading and decoding itself, which is the only way 139
+ * full-size JPEGs stay tolerable. A fetch-to-blob would buffer all of them in
+ * memory before anything painted.
+ *
+ * No `doc_id` in the path — the backend owns that lookup, and taking a
+ * caller-supplied string into a filesystem path is how traversal bugs start.
+ */
+export function pageImageUrl(pageNumber: number): string {
+  return `${BASE}/document/page/${pageNumber}`
+}
+
+export const api = {
+  getHealth,
+  getCollections,
+  search,
+  chat,
+  setLLMProvider,
+  getDocumentPages,
+}
 export { BASE as API_BASE }

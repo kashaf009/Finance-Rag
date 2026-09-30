@@ -3,7 +3,9 @@ import { screen, waitFor, within } from '@testing-library/react'
 
 import {
   DEGRADED_HEALTH,
+  DOCUMENT_PAGES,
   jsonResponse,
+  NO_DOCUMENT_PAGES,
   OK_HEALTH,
   renderApp,
   resetQueryCache,
@@ -39,12 +41,17 @@ const SEARCH_RESULT = {
  * Stubs both endpoints the landing page calls, routing on the URL.
  * /search is held separately so a test can leave it pending.
  */
-function stubEndpoints(health: unknown = OK_HEALTH, searchResult: unknown = SEARCH_RESULT) {
+function stubEndpoints(
+  health: unknown = OK_HEALTH,
+  searchResult: unknown = SEARCH_RESULT,
+  documentPages: unknown = DOCUMENT_PAGES,
+) {
   // The init arg is unused here but is read back from mock.calls, so the
   // signature must keep it.
   const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input)
     if (url.includes('/search')) return Promise.resolve(jsonResponse(searchResult))
+    if (url.includes('/document/pages')) return Promise.resolve(jsonResponse(documentPages))
     return Promise.resolve(jsonResponse(health))
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -78,10 +85,22 @@ describe('document card identity', () => {
 
     const c = card()
     expect(c.getByText(/J\.P\. Morgan SE · Annual Report 2023/i)).toBeInTheDocument()
-    expect(c.getByText(formatSize(DOCUMENT.sizeBytes))).toBeInTheDocument()
-    // Once in the card header, once in the page-viewer chrome bar.
-    expect(c.getAllByText(DOCUMENT.filename).length).toBe(2)
+    // The size is what GET /document/pages measured, not a bundled constant.
+    await waitFor(() =>
+      expect(c.getByText(formatSize(DOCUMENT_PAGES.pdf_byte_size!))).toBeInTheDocument(),
+    )
+    // The filename legitimately appears twice: card header and viewer chrome.
+    expect(c.getAllByText(DOCUMENT_PAGES.pdf_filename!)).toHaveLength(2)
     await waitFor(() => expect(c.getByText(/Nearest indexed page/i)).toBeInTheDocument())
+  })
+
+  it('omits the file size when the backend cannot measure one', async () => {
+    stubEndpoints(OK_HEALTH, SEARCH_RESULT, NO_DOCUMENT_PAGES)
+    renderApp()
+    await waitFor(() => expect(card().getByText(/Nearest indexed page/i)).toBeInTheDocument())
+    // Fall back to the label, but print no size we could not verify.
+    expect(card().getAllByText(DOCUMENT.filename).length).toBe(2)
+    expect(card().queryByText(/MB$/)).not.toBeInTheDocument()
   })
 
   it('never shows the mock SEC 10-K identity or its fabricated telemetry', async () => {
