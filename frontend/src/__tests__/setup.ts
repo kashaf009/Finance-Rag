@@ -20,3 +20,40 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
 if (typeof window !== 'undefined') {
   window.scrollTo = (() => {}) as unknown as typeof window.scrollTo
 }
+
+// jsdom ships no IntersectionObserver, which the count-up and scroll-reveal
+// effects gate on. Report everything as visible so those code paths run.
+if (typeof globalThis.IntersectionObserver === 'undefined') {
+  class AlwaysIntersectingObserver implements IntersectionObserver {
+    readonly root = null
+    readonly rootMargin = '0px'
+    readonly thresholds = [0]
+    private readonly targets = new Set<Element>()
+
+    constructor(private callback: IntersectionObserverCallback) {
+      this.handle = (entries: IntersectionObserverEntry[]) => {
+        for (const entry of entries) {
+          this.callback([{ ...entry, isIntersecting: true } as IntersectionObserverEntry], this)
+        }
+      }
+    }
+    private readonly handle: (entries: IntersectionObserverEntry[]) => void
+
+    observe(target: Element) {
+      this.targets.add(target)
+      this.handle([{ target, isIntersecting: true } as IntersectionObserverEntry])
+    }
+    unobserve(target: Element) {
+      this.targets.delete(target)
+    }
+    disconnect() {
+      this.targets.clear()
+    }
+    takeRecords(): IntersectionObserverEntry[] {
+      return []
+    }
+  }
+
+  globalThis.IntersectionObserver =
+    AlwaysIntersectingObserver as unknown as typeof IntersectionObserver
+}

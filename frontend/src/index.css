@@ -114,6 +114,27 @@
   .mask-lines {
     overflow: hidden;
     display: block;
+    /* Serif descenders (the "y" in Every, the "p" in page) would be clipped by
+       the mask at this line-height, so the box is padded to fit them. The
+       headline's gap below accounts for that padding when spacing the lines. */
+    padding-bottom: 0.14em;
+  }
+
+  /* Hero headline. The two lines are stacked as flex items rather than split
+     with a <br />: a br contributes no whitespace to textContent, which glued
+     them into "anchoredto a page." in copy-paste and screen-reader output.
+
+     The gap replaces the br. A space in Newsreader measures 0.204em, so 0.2em
+     reads as exactly one blank line of air; the previous 0.04em was a fifth of
+     a space and the two lines looked welded together. This sits on top of the
+     0.14em of descender padding that .mask-lines needs to avoid clipping.
+
+     word-spacing is deliberately left alone so words use the font's natural
+     0.204em space rather than a hand-tuned nudge. */
+  .headline {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2em;
   }
 }
 
