@@ -67,6 +67,91 @@
 }
 
 @layer components {
+  /* ---------------------------------------------------------------------
+     Chat answer prose (ui.html:410-414 rendered via react-markdown).
+
+     The project has no @tailwindcss/typography, so markdown output is
+     styled here rather than with a `prose` utility class.
+
+     Kept dark-only: the chat panel is always on the noir surface, both on
+     the landing band and at /chat.
+     --------------------------------------------------------------------- */
+  .prose-chat {
+    @apply text-sm leading-relaxed text-ivory/90;
+  }
+  .prose-chat > * + * {
+    @apply mt-3;
+  }
+  .prose-chat strong {
+    @apply font-semibold text-ivory;
+  }
+  .prose-chat em {
+    @apply italic text-ivory/80;
+  }
+  .prose-chat a.prose-chat-link {
+    @apply text-gold underline decoration-gold/40 underline-offset-2 hover:decoration-gold;
+  }
+  .prose-chat ul,
+  .prose-chat ol {
+    @apply pl-5 space-y-1.5;
+  }
+  .prose-chat ul {
+    @apply list-disc marker:text-gold/60;
+  }
+  .prose-chat ol {
+    @apply list-decimal marker:text-gold/60 marker:font-mono marker:text-xs;
+  }
+  .prose-chat li > p {
+    @apply inline;
+  }
+  .prose-chat blockquote {
+    @apply border-l-2 border-gold/40 pl-3 italic text-ivory/70;
+  }
+  .prose-chat code {
+    @apply font-mono text-[12px] rounded bg-white/[0.07] px-1 py-0.5 text-gold-light;
+  }
+  .prose-chat pre {
+    @apply overflow-x-auto rounded-lg border border-white/10 bg-noir p-3;
+  }
+  .prose-chat pre code {
+    @apply bg-transparent p-0 text-ivory/85;
+  }
+  .prose-chat hr {
+    @apply border-white/10;
+  }
+  /* GFM tables — the model does emit them, so they need real borders. */
+  .prose-chat table {
+    @apply w-full text-left text-xs font-mono;
+    @apply rounded-lg border border-white/10 overflow-hidden;
+  }
+  .prose-chat thead {
+    @apply bg-white/[0.05] border-b border-white/10 text-ivory/60;
+  }
+  .prose-chat th,
+  .prose-chat td {
+    @apply px-3 py-2 align-top;
+  }
+  .prose-chat tbody tr + tr {
+    @apply border-t border-white/[0.06];
+  }
+
+  /* Page citation chip. data-cited="no" means the marker named a page the
+     backend did not return a citation for (the grouped-marker case), so it
+     is visibly weaker rather than silently dropped. */
+  .citation-chip {
+    @apply inline-flex items-center gap-1 align-middle;
+    @apply rounded bg-gold/15 text-gold-light border border-gold/30;
+    @apply px-1.5 py-0.5 text-[10px] font-mono whitespace-nowrap;
+  }
+  .citation-chip[data-cited='no'] {
+    @apply bg-white/[0.06] text-ivory/50 border-white/15 border-dashed;
+  }
+  .citation-chip-score {
+    @apply text-gold/70;
+  }
+}
+
+@layer components {
   /* Financial technical grid (ui.html:71-76) */
   .bg-rag-grid {
     background-size: 32px 32px;
