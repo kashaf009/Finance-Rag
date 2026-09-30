@@ -21,3 +21,5 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+ui.html
+ui.png
