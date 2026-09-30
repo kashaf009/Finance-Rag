@@ -1,0 +1,1 @@
+{"status":"ok","qdrant_url":"http://localhost:6333","collection":"finance_pages","collection_ready":true,"points":139,"llm_model":"gemini-2.5-flash","llm_base_url":"https://api.euron.one/api/v1/euri","embed_model":"gemini-embedding-2","vector_size":1024}

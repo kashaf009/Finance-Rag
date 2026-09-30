@@ -1,0 +1,44 @@
+{
+  "question": "What was the net interest income in 2023 and what was the profit for the year?",
+  "query": "What was the net interest income in 2023 and what was the profit for the year?",
+  "answer": "Based on the provided document:\n\n### **1. Net Interest Income (2023)**\n* **\u20ac1,439.8 million** as reported in the *Key Figures* table [p2].\n* **\u20ac1,440 million** as reported in the *Financial Performance Indicators* table [p30].\n\n---\n\n### **2. Profit for the Year (2023)**\n* **\u20ac1,683.6 million** as reported in the *Key Figures* table [p2].\n* **\u20ac1,684 million** (or \u20ac1,684 million profit after taxes) as reported in the *Financial Performance Indicators* and management report sections [p24, p30].",
+  "supported": true,
+  "rewrites": 0,
+  "pages_considered": 5,
+  "citations": [
+    {
+      "doc_id": "JPM_SE_Annual_2023_140",
+      "page_number": 2,
+      "score": 0.5137999,
+      "image": "data:image/jpeg;base64,/9j/4AAQS<TRUNCATED>"
+    },
+    {
+      "doc_id": "JPM_SE_Annual_2023_140",
+      "page_number": 30,
+      "score": 0.5065855,
+      "image": "data:image/jpeg;base64,/9j/4AAQS<TRUNCATED>"
+    }
+  ],
+  "trace": [
+    {
+      "node": "retrieve",
+      "query": "What was the net interest income in 2023 and what was the profit for the year?",
+      "hits": 5
+    },
+    {
+      "node": "grade",
+      "relevant": true,
+      "reply": "YES. Page p2 and page p30 both contain the net interest income and profit for the year for 2023."
+    },
+    {
+      "node": "generate",
+      "pages": 5,
+      "chars": 495
+    },
+    {
+      "node": "self_check",
+      "supported": true,
+      "reply": "SUPPORTED\nAll factual claims in the proposed answer regarding the 2023 net interest income and profit for the year are fully supported by the provided pages."
+    }
+  ]
+}
