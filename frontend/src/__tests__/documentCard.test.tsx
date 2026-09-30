@@ -40,6 +40,8 @@ const SEARCH_RESULT = {
  * /search is held separately so a test can leave it pending.
  */
 function stubEndpoints(health: unknown = OK_HEALTH, searchResult: unknown = SEARCH_RESULT) {
+  // The init arg is unused here but is read back from mock.calls, so the
+  // signature must keep it.
   const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input)
     if (url.includes('/search')) return Promise.resolve(jsonResponse(searchResult))
@@ -252,7 +254,9 @@ describe('scanner only runs during a real request', () => {
     const pending = new Promise<Response>((resolve) => {
       release = resolve
     })
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    // The init arg is unused here but is read back from mock.calls, so the
+  // signature must keep it.
+  const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       if (String(input).includes('/search')) return pending
       return Promise.resolve(jsonResponse(OK_HEALTH))
     })

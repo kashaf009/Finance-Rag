@@ -1,5 +1,3 @@
-import { useMemo } from 'react'
-
 /**
  * Splits a line into word spans for a masked reveal.
  *
@@ -23,18 +21,24 @@ export interface WordSpan {
   space: string
 }
 
+/**
+ * Pure string work, deliberately not a hook.
+ *
+ * This was memoised with `useMemo`, which made a plain function depend on hook
+ * order: calling it from inside a `.map()` or a conditional would break React
+ * at runtime rather than at build time. A `split` over a short headline costs
+ * nothing, so the memo was pure risk.
+ */
 export function splitWords(line: string): WordSpan[] {
-  return useMemo(() => {
-    const parts = line.split(/(\s+)/)
-    const out: WordSpan[] = []
-    for (const part of parts) {
-      if (part === '') continue
-      if (/^\s+$/.test(part)) {
-        if (out.length > 0) out[out.length - 1].space += part
-      } else {
-        out.push({ text: part, space: '' })
-      }
+  const parts = line.split(/(\s+)/)
+  const out: WordSpan[] = []
+  for (const part of parts) {
+    if (part === '') continue
+    if (/^\s+$/.test(part)) {
+      if (out.length > 0) out[out.length - 1].space += part
+    } else {
+      out.push({ text: part, space: '' })
     }
-    return out
-  }, [line])
+  }
+  return out
 }
