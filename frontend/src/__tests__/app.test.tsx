@@ -86,7 +86,7 @@ describe('app shell', () => {
 describe('routing', () => {
   const routes: Array<[string, () => void]> = [
     ['/', () => expect(readHeadline()).toBe('Every answer, anchored to a page.')],
-    ['/chat', () => expect(screen.getByText(/step 8 — chat terminal/i)).toBeInTheDocument()],
+    ['/chat', () => expect(screen.getByTestId('chat-panel')).toBeInTheDocument()],
     ['/document', () => expect(screen.getByText(/step 13 — pdf reader/i)).toBeInTheDocument()],
   ]
 
@@ -102,7 +102,7 @@ describe('routing', () => {
 
   it('applies the on-noir class only to dark routes', () => {
     const { unmount } = renderApp('/chat')
-    expect(screen.getByText(/step 8/i).closest('.on-noir')).toBeTruthy()
+    expect(screen.getByTestId('chat-panel').closest('.on-noir')).toBeTruthy()
     unmount()
     resetQueryCache()
 

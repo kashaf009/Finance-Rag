@@ -1,6 +1,7 @@
 import { AmbientLight } from '@/components/layout/Ambient'
 import { HeroLeft } from '@/components/hero/HeroLeft'
 import { DocumentCard } from '@/components/hero/DocumentCard'
+import { ChatSection } from '@/components/chat/ChatSection'
 import { useIndexReady } from '@/hooks/useHealth'
 import { usePreviewHit } from '@/hooks/usePreviewHit'
 import { formatPage, formatScore } from '@/lib/citations'
@@ -48,6 +49,8 @@ export function Landing() {
           </div>
         </div>
       </section>
+
+      <ChatSection />
     </div>
   )
 }

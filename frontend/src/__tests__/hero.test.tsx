@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -138,7 +138,9 @@ describe('hero metric cards are fed by live health, not mock figures', () => {
     })
     expect(metricValue(container, 'Embedding')).toBe('1,024')
     expect(metricValue(container, 'Similarity')).toBe('Cosine')
-    expect(screen.getByText('gemini-embedding-2')).toBeInTheDocument()
+    // Scoped to the hero: the chat source row also names the embedder.
+    const hero = within(document.getElementById('hero') as HTMLElement)
+    expect(hero.getByText('gemini-embedding-2')).toBeInTheDocument()
   })
 
   it('animates the count up to the exact server value', async () => {
@@ -216,8 +218,10 @@ describe('hero actions', () => {
     const cta = screen.getByRole('link', { name: /launch chat interface/i })
     expect(cta).toHaveAttribute('href', '/chat')
 
+    // Scoped to the hero: the chat panel header also names the model.
+    const hero = within(document.getElementById('hero') as HTMLElement)
     await waitFor(() => {
-      expect(screen.getByText(/gemini-2\.5-flash/)).toBeInTheDocument()
+      expect(hero.getByText(/gemini-2\.5-flash/)).toBeInTheDocument()
     })
   })
 })
