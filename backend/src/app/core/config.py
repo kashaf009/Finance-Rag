@@ -13,6 +13,9 @@ DEFAULT_STORAGE_DIR = BACKEND_ROOT / "storage" / "pages"
 
 _TRUE = {"1", "true", "yes", "on"}
 
+DEFAULT_LLM_PROVIDER = "euron"
+DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
 
 def env_str(name: str, default: str) -> str:
     value = os.environ.get(name)
@@ -98,16 +101,19 @@ class AppSettings:
     )
     qdrant_timeout: float = field(default_factory=lambda: env_float("QDRANT_TIMEOUT", 60.0))
 
-    llm_model: str = field(default_factory=lambda: env_str("LLM_MODEL", "gemini-2.5-flash"))
-    llm_base_url: str = field(
-        default_factory=lambda: env_str("LLM_BASE_URL", "") or env_str("EURI_BASE_URL", "")
+    llm_provider: str = field(default_factory=lambda: env_str("LLM_PROVIDER", DEFAULT_LLM_PROVIDER))
+    llm_model: str = field(default_factory=lambda: env_str("LLM_MODEL", ""))
+    llm_base_url: str = field(default_factory=lambda: env_str("LLM_BASE_URL", ""))
+    groq_base_url: str = field(
+        default_factory=lambda: env_str("GROQ_BASE_URL", DEFAULT_GROQ_BASE_URL)
     )
-    llm_api_key: str | None = field(
-        default_factory=lambda: env_str("LLM_API_KEY", "") or env_str("EURON_API_KEY", "") or None
+    euron_base_url: str = field(
+        default_factory=lambda: env_str("EURON_BASE_URL", "") or env_str("EURI_BASE_URL", "")
     )
-    llm_grader_model: str = field(
-        default_factory=lambda: env_str("LLM_GRADER_MODEL", "") or env_str("LLM_MODEL", "")
-    )
+    llm_api_key: str | None = field(default_factory=lambda: env_str("LLM_API_KEY", "") or None)
+    groq_api_key: str | None = field(default_factory=lambda: env_str("GROQ_API_KEY", "") or None)
+    euron_api_key: str | None = field(default_factory=lambda: env_str("EURON_API_KEY", "") or None)
+    llm_grader_model: str = field(default_factory=lambda: env_str("LLM_GRADER_MODEL", ""))
     llm_temperature: float = field(default_factory=lambda: env_float("LLM_TEMPERATURE", 0.1))
     llm_max_completion_tokens: int = field(
         default_factory=lambda: env_int("LLM_MAX_COMPLETION_TOKENS", 2048)
@@ -115,7 +121,7 @@ class AppSettings:
     llm_timeout: float = field(default_factory=lambda: env_float("LLM_TIMEOUT", 120.0))
     llm_max_retries: int = field(default_factory=lambda: env_int("LLM_MAX_RETRIES", 3))
     llm_reasoning_effort: str = field(
-        default_factory=lambda: env_str("LLM_REASONING_EFFORT", "none")
+        default_factory=lambda: env_str("LLM_REASONING_EFFORT", "")
     )
     llm_image_max_edge: int = field(default_factory=lambda: env_int("LLM_IMAGE_MAX_EDGE", 768))
     llm_image_quality: int = field(default_factory=lambda: env_int("LLM_IMAGE_QUALITY", 70))

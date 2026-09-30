@@ -42,10 +42,22 @@ class HealthResponse(BaseModel):
     collection: str
     collection_ready: bool
     points: int | None
+    llm_provider: str
+    llm_providers: list[str]
     llm_model: str
     llm_base_url: str
     embed_model: str
     vector_size: int | None
+
+
+class LLMProviderRequest(BaseModel):
+    provider: str | None = None
+
+
+class LLMProviderResponse(BaseModel):
+    provider: str
+    model: str
+    base_url: str
 
 
 class CollectionInfo(BaseModel):

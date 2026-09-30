@@ -11,8 +11,13 @@ from app.llm import (
     ANSWER,
     NOT_FOUND_ANSWER,
     UTILITY,
+    LLMConfigError,
     build_llm,
     is_refusal,
+    provider_names,
+    reset_llm_cache,
+    resolve_provider,
+    set_active_provider,
     text_of,
     to_prompt_data_uri,
 )
@@ -53,30 +58,182 @@ def test_text_of_handles_strings_and_messages() -> None:
     assert text_of(AIMessage(content="")) == ""
 
 
-def test_build_llm_applies_reasoning_effort_only_to_utility(monkeypatch) -> None:
+def test_build_llm_omits_reasoning_effort_unless_configured(monkeypatch) -> None:
     monkeypatch.setenv("EURON_API_KEY", "test-key")
     monkeypatch.setenv("EURI_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.delenv("LLM_REASONING_EFFORT", raising=False)
     reset_settings()
+    reset_llm_cache()
     try:
         utility = build_llm(UTILITY)
         answer = build_llm(ANSWER)
-        assert utility.extra_body == {"reasoning_effort": "none"}
+        assert utility.extra_body is None
         assert answer.extra_body is None
         assert utility.request_timeout == get_settings().llm_timeout
     finally:
         reset_settings()
+        reset_llm_cache()
+
+
+def test_build_llm_sends_reasoning_effort_only_to_utility_when_set(monkeypatch) -> None:
+    monkeypatch.setenv("EURON_API_KEY", "test-key")
+    monkeypatch.setenv("EURI_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "high")
+    reset_settings()
+    reset_llm_cache()
+    try:
+        utility = build_llm(UTILITY)
+        answer = build_llm(ANSWER)
+        assert utility.extra_body == {"reasoning_effort": "high"}
+        assert answer.extra_body is None
+    finally:
+        reset_settings()
+        reset_llm_cache()
+
+
+def test_utility_role_uses_grader_model_and_zero_temperature(monkeypatch) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("LLM_MAX_PAGES", "3")
+    monkeypatch.setenv("LLM_MODEL", "qwen/qwen3.8-27b")
+    monkeypatch.setenv("LLM_GRADER_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+    reset_settings()
+    reset_llm_cache()
+    try:
+        answer = build_llm(ANSWER)
+        utility = build_llm(UTILITY)
+        assert answer.model_name == "qwen/qwen3.8-27b"
+        assert utility.model_name == "meta-llama/llama-4-scout-17b-16e-instruct"
+        assert answer.temperature == get_settings().llm_temperature
+        assert utility.temperature == 0.0
+    finally:
+        reset_settings()
+        reset_llm_cache()
+
+
+def test_resolve_provider_prefers_explicit_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("LLM_BASE_URL", "https://proxy.invalid/v1")
+    monkeypatch.setenv("LLM_API_KEY", "override-key")
+    monkeypatch.setenv("LLM_MODEL", "custom-model")
+    reset_settings()
+    try:
+        resolved = resolve_provider()
+        assert resolved.name == "groq"
+        assert resolved.base_url == "https://proxy.invalid/v1"
+        assert resolved.api_key == "override-key"
+        assert resolved.answer_model == "custom-model"
+    finally:
+        reset_settings()
+
+
+def test_resolve_provider_defaults_to_euron(monkeypatch) -> None:
+    monkeypatch.setenv("EURON_API_KEY", "euron-key")
+    monkeypatch.setenv("EURI_BASE_URL", "https://euron.invalid/v1")
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    reset_settings()
+    try:
+        resolved = resolve_provider()
+        assert resolved.name == "euron"
+        assert resolved.base_url == "https://euron.invalid/v1"
+        assert resolved.answer_model == "gemini-2.5-flash"
+        assert resolved.supports_reasoning_effort is True
+    finally:
+        reset_settings()
+
+
+def test_resolve_provider_groq_defaults(monkeypatch) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.delenv("GROQ_BASE_URL", raising=False)
+    reset_settings()
+    try:
+        resolved = resolve_provider()
+        assert resolved.base_url == "https://api.groq.com/openai/v1"
+        assert resolved.answer_max_images == 3
+        assert resolved.grader_max_images == 3
+        assert resolved.supports_reasoning_effort is False
+    finally:
+        reset_settings()
+
+
+def test_resolve_provider_rejects_unknown_provider(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "nope")
+    reset_settings()
+    try:
+        with pytest.raises(LLMConfigError, match="Unknown LLM_PROVIDER"):
+            resolve_provider()
+    finally:
+        reset_settings()
+
+
+def test_resolve_provider_requires_key_for_selected_provider(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    reset_settings()
+    try:
+        with pytest.raises(LLMConfigError, match="GROQ_API_KEY"):
+            resolve_provider()
+    finally:
+        reset_settings()
+
+
+def test_build_llm_fails_loudly_when_page_count_exceeds_image_cap(monkeypatch) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("LLM_MAX_PAGES", "4")
+    reset_settings()
+    reset_llm_cache()
+    try:
+        with pytest.raises(LLMConfigError, match="image\\(s\\) per request"):
+            build_llm(ANSWER)
+    finally:
+        reset_settings()
+        reset_llm_cache()
+
+
+def test_set_active_provider_overrides_env(monkeypatch) -> None:
+    monkeypatch.setenv("EURON_API_KEY", "euron-key")
+    monkeypatch.setenv("EURI_BASE_URL", "https://euron.invalid/v1")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    monkeypatch.setenv("LLM_PROVIDER", "euron")
+    reset_settings()
+    try:
+        assert resolve_provider().name == "euron"
+        set_active_provider("groq")
+        assert resolve_provider().name == "groq"
+        set_active_provider(None)
+        assert resolve_provider().name == "euron"
+    finally:
+        set_active_provider(None)
+        reset_settings()
+        reset_llm_cache()
+
+
+def test_set_active_provider_rejects_unknown_name() -> None:
+    with pytest.raises(LLMConfigError, match="Unknown LLM provider"):
+        set_active_provider("nope")
+
+
+def test_provider_names_lists_both_providers() -> None:
+    assert provider_names() == ["euron", "groq"]
 
 
 def test_build_llm_requires_api_key(monkeypatch) -> None:
-    from app.llm import LLMConfigError
-
+    monkeypatch.setenv("LLM_PROVIDER", "euron")
     monkeypatch.delenv("EURON_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.setenv("EURI_BASE_URL", "https://example.invalid/v1")
     reset_settings()
+    reset_llm_cache()
     try:
         with pytest.raises(LLMConfigError):
             build_llm(ANSWER)
     finally:
         reset_settings()
+        reset_llm_cache()
 
 
 def test_answer_prompt_asks_for_page_markers() -> None:
@@ -124,3 +281,16 @@ def test_fake_llm_returns_scripted_replies_in_order() -> None:
     assert llm.invoke([]) == "YES"
     assert llm.invoke([]) == "rewritten query"
     assert llm.invoke([]) == ""
+
+
+def test_build_llm_allows_grader_within_its_own_cap(monkeypatch) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("LLM_MAX_PAGES", "3")
+    reset_settings()
+    reset_llm_cache()
+    try:
+        assert build_llm(UTILITY) is not None
+    finally:
+        reset_settings()
+        reset_llm_cache()
