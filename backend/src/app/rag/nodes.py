@@ -27,7 +27,13 @@ from app.vector.store import QdrantStore
 
 logger = get_logger("rag.nodes")
 
-PAGE_MARKER = re.compile(r"\[p(\d+)\]")
+# Matches one bracketed marker holding one or more page numbers, in any of the
+# spellings the model emits: "[p24]", "[p24, p30]", "[p24,p30]", "[p24,30]".
+# The repeated "p" prefix is optional after the first one. Capture group is the
+# raw inner text ("24, p30"), so callers must extract the numbers themselves --
+# see build_citations. The previous r"\[p(\d+)\]" matched nothing in a grouped
+# marker, which left the citation filter with no referenced pages.
+PAGE_MARKER = re.compile(r"\[p(\d+(?:\s*,\s*p?\s*\d+)*)\]")
 MAX_GRADER_PAGES = 2
 
 

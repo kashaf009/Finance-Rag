@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -39,7 +40,13 @@ class AnswerResult:
 def build_citations(
     answer: str, pages: list[RetrievedPage], max_pages: int, settings: Any = None
 ) -> list[Citation]:
-    referenced = {int(value) for value in PAGE_MARKER.findall(answer)}
+    # PAGE_MARKER captures the whole bracket body, which may name several pages
+    # ("24, p30"), so pull every number out of it rather than int()-ing the group.
+    referenced = {
+        int(number)
+        for group in PAGE_MARKER.findall(answer)
+        for number in re.findall(r"\d+", group)
+    }
     selected = [
         page for page in pages[:max_pages] if not referenced or page["page_number"] in referenced
     ]

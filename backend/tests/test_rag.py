@@ -10,6 +10,7 @@ from app.imaging.encode import image_to_base64
 from app.llm import NOT_FOUND_ANSWER
 from app.rag import RagService, build_citations, build_graph
 from app.rag.nodes import RagDeps
+from app.rag.state import RetrievedPage
 from tests.fakes import FakeEmbedder, FakeHit, FakeLLM, FakeStore
 
 DOC = "JPM_SE_Annual_2023_140"
@@ -189,3 +190,63 @@ def test_build_citations_keeps_top_pages_when_no_markers() -> None:
         "No markers here.", [page, {**page, "page_number": 3}], max_pages=1, settings=get_settings()
     )
     assert len(citations) == 1
+
+
+def _retrieved(number: int, score: float) -> RetrievedPage:
+    return RetrievedPage(
+        doc_id=DOC,
+        page_number=number,
+        score=score,
+        image_base64=image_to_base64(Image.new("RGB", (100, 100), "white")),
+        width=100,
+        height=100,
+        source=f"{DOC}.pdf",
+    )
+
+
+def test_build_citations_parses_grouped_page_markers() -> None:
+    """A grouped marker must cite exactly the pages it names.
+
+    PAGE_MARKER used to be r"\\[p(\\d+)\\]", which matches nothing in
+    "[p24, p30]". That left `referenced` empty, and an empty set hits the
+    `not referenced` fallback in build_citations — so the backend returned
+    top-k pages the answer never mentioned, inventing provenance.
+    """
+    pages = [_retrieved(24, 0.71), _retrieved(30, 0.66), _retrieved(7, 0.94)]
+    citations = build_citations(
+        "Reported on [p24, p30].", pages, max_pages=5, settings=get_settings()
+    )
+    cited = [c.page_number for c in citations]
+    assert cited == [24, 30]
+    # Page 7 scored highest but was never cited, so it must not appear.
+    assert 7 not in cited
+
+
+def test_build_citations_mixes_single_and_grouped_markers() -> None:
+    pages = [_retrieved(5, 0.8), _retrieved(9, 0.7), _retrieved(11, 0.6), _retrieved(3, 0.9)]
+    citations = build_citations(
+        "Interest margin [p5], then credit risk [p9, p11].", pages, max_pages=5, settings=get_settings()
+    )
+    assert [c.page_number for c in citations] == [5, 9, 11]
+
+
+def test_build_citations_accepts_grouped_marker_spellings() -> None:
+    """The model is not consistent about spacing or the repeated 'p' prefix.
+
+    Page 88 is a decoy that no spelling should pull in, which is what makes
+    this test able to fail at all — with only the two cited pages present the
+    no-marker fallback happens to return the same list.
+    """
+    pages = [_retrieved(24, 0.7), _retrieved(30, 0.6), _retrieved(88, 0.99)]
+    for marker in ("[p24, p30]", "[p24,p30]", "[p24,30]", "[p24 , p30]"):
+        citations = build_citations(f"See {marker}.", pages, max_pages=5, settings=get_settings())
+        assert [c.page_number for c in citations] == [24, 30], marker
+
+
+def test_build_citations_ignores_unbracketed_page_numbers() -> None:
+    """Only bracketed markers are citations; bare numbers in prose are not."""
+    pages = [_retrieved(24, 0.7), _retrieved(30, 0.6)]
+    citations = build_citations(
+        "On page 30 of 139, growth was 4 percent.", pages, max_pages=5, settings=get_settings()
+    )
+    assert [c.page_number for c in citations] == [24, 30]
