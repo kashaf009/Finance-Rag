@@ -14,3 +14,7 @@ __pycache__/
 frontend/dist/
 # 483KB design reference mockup — regenerable, not worth versioning
 frontend/ui.png
+
+# Local agent working notes — personal, not shared with the team
+AGENTS.md
+task.md
