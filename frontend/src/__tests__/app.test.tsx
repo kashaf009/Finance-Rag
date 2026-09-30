@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 
 import {
   DEGRADED_HEALTH,
@@ -51,9 +51,11 @@ describe('app shell', () => {
     stubHealth(new TypeError('fetch failed'))
     renderApp()
 
+    // Scoped to the navbar: the hero document card also surfaces this state.
+    const nav = within(screen.getByRole('banner'))
     await waitFor(
       () => {
-        expect(screen.getByText('Backend unreachable')).toBeInTheDocument()
+        expect(nav.getByText('Backend unreachable')).toBeInTheDocument()
       },
       { timeout: 15_000 },
     )
