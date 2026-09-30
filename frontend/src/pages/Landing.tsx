@@ -12,7 +12,7 @@ export function Landing() {
   const { top, scanning } = usePreviewHit()
 
   return (
-    <div className="relative min-h-screen pt-20">
+      <div className="relative flex-1 pt-20">
       <AmbientLight />
 
       {/* ui.html:165 — 12-col grid, 6/6 split */}
