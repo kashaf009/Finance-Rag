@@ -218,9 +218,12 @@ def document_pages(settings: SettingsDep) -> DocumentPagesResponse:
 def document_page(page_number: int, settings: SettingsDep) -> FileResponse:
     """Serve one page render at full resolution.
 
-    Served from disk rather than the Qdrant payload on purpose: the payload
-    copy is already downscaled to llm_image_max_edge, so this is the only route
-    that returns the render the ingest actually produced.
+    Read from disk rather than the Qdrant payload. The stored payload is
+    already the full-resolution file — byte-identical to what the ingest
+    wrote — so the real reason to prefer this route is that it does not pay
+    the serve-time downscale. `/search` and `/chat` run every hit through
+    `to_prompt_data_uri`, which resizes to llm_image_max_edge and returns
+    559x768 here; nothing in the ingest path downscales.
     """
     doc_dir = _page_dir(settings)
     if doc_dir is None:

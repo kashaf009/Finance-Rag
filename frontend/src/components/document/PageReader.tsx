@@ -13,10 +13,10 @@ import { formatSize } from '@/lib/document'
  * are the highest-resolution copy of the document the system holds, and
  * re-deriving them in the browser would be strictly worse.
  *
- * Note the resolution difference from citation chips. `/search` returns the copy
- * stored in the Qdrant payload, which the embed step already downscaled to
- * `llm_image_max_edge` (559x768 for this document). These routes serve the
- * original 1024x1408 file. Same page, not the same bytes — so this view is
+ * Note the resolution difference from citation chips. `/search` and `/chat`
+ * run each page through a serve-time downscale to `llm_image_max_edge`, so a
+ * citation thumbnail arrives at 559x768 for this document. These routes return
+ * the original 1024x1408 file. Same page, not the same bytes — so this view is
  * sharper than the thumbnails in an answer, and is not presented as a copy of
  * them.
  *

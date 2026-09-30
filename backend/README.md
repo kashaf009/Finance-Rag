@@ -83,7 +83,7 @@ curl http://127.0.0.1:8000/health
 
 ### `POST /search`
 
-Pure vector retrieval, no generation. Each hit carries a downscaled JPEG data URI.
+Pure vector retrieval, no generation. Each hit carries a JPEG data URI, downscaled at serve time to `llm_image_max_edge` (559x768 for this document). The Qdrant payload itself holds the full-resolution 1024x1408 file.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/search \
