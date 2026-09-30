@@ -70,10 +70,31 @@ export interface HealthResponse {
   collection: string
   collection_ready: boolean
   points: number | null
+  /**
+   * Active generation provider, or the literal `unconfigured` when the backend
+   * cannot resolve a usable base URL and key. Never a guess: the backend only
+   * reports a provider it can actually build a client for.
+   */
+  llm_provider: string
+  /** Every provider the backend will accept, sorted. Drives the selector. */
+  llm_providers: string[]
+  /** Resolved model for the answer role, or `unconfigured`. */
   llm_model: string
   llm_base_url: string
   embed_model: string
   vector_size: number | null
+}
+
+/** schemas.py:57 LLMProviderResponse */
+export interface LLMProviderResponse {
+  provider: string
+  model: string
+  base_url: string
+}
+
+/** schemas.py:53 LLMProviderRequest — `null` reverts to the LLM_PROVIDER env value. */
+export interface LLMProviderRequest {
+  provider: string | null
 }
 
 /** schemas.py:51 CollectionInfo */

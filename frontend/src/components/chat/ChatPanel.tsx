@@ -9,6 +9,7 @@ import { formatPage, formatScore } from '@/lib/citations'
 import { DOCUMENT } from '@/lib/document'
 import { LIMITS } from '@/types/api'
 import { AnswerMarkdown } from '@/components/chat/AnswerMarkdown'
+import { ProviderSelect } from '@/components/chat/ProviderSelect'
 
 /** Ticking clock for the in-flight request. Frozen when inactive. */
 function useElapsed(active: boolean): number {
@@ -85,6 +86,13 @@ export function ChatPanel({ className = '' }: { className?: string }) {
               {health?.vector_size != null ? `${health.vector_size}-dim` : 'embedder unknown'}
             </span>
           </div>
+          {/* Provider list and current provider both come from /health, so this
+              cannot claim a provider the backend is not actually using. */}
+          <ProviderSelect
+            active={health?.llm_provider}
+            options={health?.llm_providers ?? []}
+            disabled={pending || healthError}
+          />
           <div className="flex items-center space-x-1.5 text-emerald-400 text-[11px]">
             <span className={`w-1.5 h-1.5 rounded-full ${ready ? 'bg-emerald-400' : 'bg-gold'}`} />
             <span>

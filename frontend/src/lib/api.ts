@@ -4,6 +4,8 @@ import type {
   CollectionInfo,
   HealthResponse,
   HttpErrorBody,
+  LLMProviderRequest,
+  LLMProviderResponse,
   SearchRequest,
   SearchResponse,
   ValidationError,
@@ -54,7 +56,7 @@ export class ApiError extends Error {
   get userMessage(): string {
     switch (this.kind) {
       case 'not_configured':
-        return 'The language model is not configured on the backend. Set LLM_BASE_URL and LLM_API_KEY in backend/.env, then restart the server.'
+        return 'The language model is not configured on the backend. Set an API key for the selected provider in backend/.env (GROQ_API_KEY or EURON_API_KEY), then restart the server.'
       case 'pipeline':
         return this.detail ?? 'The retrieval pipeline failed while answering. Please try again.'
       case 'validation':
@@ -185,5 +187,19 @@ export const chat = (body: ChatRequest, signal?: AbortSignal) =>
     }),
   )
 
-export const api = { getHealth, getCollections, search, chat }
+/**
+ * POST /llm-provider — switch the generation provider.
+ *
+ * Pass `null` to revert to the `LLM_PROVIDER` env value. The backend rejects an
+ * unknown name, or a known one whose API key is missing, with 422 and a detail
+ * naming the variable to set, so the failure arrives as a `validation` ApiError.
+ */
+export const setLLMProvider = (body: LLMProviderRequest, signal?: AbortSignal) =>
+  request<LLMProviderResponse>('/llm-provider', {
+    ...jsonPost(body),
+    timeoutMs: HEALTH_TIMEOUT_MS,
+    signal,
+  })
+
+export const api = { getHealth, getCollections, search, chat, setLLMProvider }
 export { BASE as API_BASE }
