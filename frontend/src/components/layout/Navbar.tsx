@@ -1,6 +1,8 @@
 import { Link, NavLink } from 'react-router-dom'
 import { ArrowDown } from 'lucide-react'
+import gsap from 'gsap'
 import { useIndexReady } from '@/hooks/useHealth'
+import { useGsapContext } from '@/lib/gsap'
 
 /** Triangle mark from ui.html:113-117. */
 function BrandMark() {
@@ -66,8 +68,22 @@ function StatusPill() {
 }
 
 export function Navbar() {
+  // Nav entrance, per ui.html:556 — y -30, opacity 0, 0.8s, at t=0.1.
+  // Runs concurrently with the hero timeline rather than being part of one
+  // timeline, because the navbar outlives any single route.
+  const { scope } = useGsapContext<HTMLElement>((root, reduced) => {
+    if (reduced) return
+    const header = root.querySelector('#main-nav')
+    if (!header) return
+    const tw = gsap.from(header, { y: -30, opacity: 0, duration: 0.8, ease: 'power3.out' })
+    return () => {
+      tw.kill()
+    }
+  }, [])
+
   return (
     <header
+      ref={scope}
       className="fixed top-0 left-0 w-full z-50 bg-ivory/90 backdrop-blur-md border-b border-noir/10 transition-all duration-300"
       id="main-nav"
     >
