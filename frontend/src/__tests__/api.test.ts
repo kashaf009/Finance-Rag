@@ -58,8 +58,8 @@ describe('fixtures match the backend contract', () => {
 describe('ApiError', () => {
   it('maps 503 to not_configured with actionable copy', () => {
     const e = new ApiError('not_configured', 'boom', { status: 503 })
-    expect(e.userMessage).toMatch(/LLM_BASE_URL/)
-    expect(e.userMessage).toMatch(/LLM_API_KEY/)
+      expect(e.userMessage).toMatch(/GROQ_API_KEY/)
+      expect(e.userMessage).toMatch(/EURON_API_KEY/)
   })
 
   it('maps 502 to pipeline and surfaces the backend detail', () => {
@@ -77,7 +77,11 @@ describe('ApiError', () => {
   })
 
   it('mentions the retry behaviour for timeouts', () => {
-    expect(new ApiError('timeout', 't').userMessage).toMatch(/retries up to twice/)
+    const message = new ApiError('timeout', 't').userMessage
+    expect(message).toMatch(/retry retrieval up to twice/)
+    // No fixed duration: run time varies by provider, so quoting one would be
+    // a claim the UI cannot back up.
+    expect(message).not.toMatch(/\d+\s*seconds?/)
   })
 
   it('tells the user to start the backend for network errors', () => {

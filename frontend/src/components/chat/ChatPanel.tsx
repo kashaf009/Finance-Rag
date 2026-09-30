@@ -9,6 +9,7 @@ import { formatPage, formatScore } from '@/lib/citations'
 import { DOCUMENT } from '@/lib/document'
 import { LIMITS } from '@/types/api'
 import { AnswerMarkdown } from '@/components/chat/AnswerMarkdown'
+import { ProviderSelect } from '@/components/chat/ProviderSelect'
 
 /** Ticking clock for the in-flight request. Frozen when inactive. */
 function useElapsed(active: boolean): number {
@@ -85,6 +86,13 @@ export function ChatPanel({ className = '' }: { className?: string }) {
               {health?.vector_size != null ? `${health.vector_size}-dim` : 'embedder unknown'}
             </span>
           </div>
+          {/* Provider list and current provider both come from /health, so this
+              cannot claim a provider the backend is not actually using. */}
+          <ProviderSelect
+            active={health?.llm_provider}
+            options={health?.llm_providers ?? []}
+            disabled={pending || healthError}
+          />
           <div className="flex items-center space-x-1.5 text-emerald-400 text-[11px]">
             <span className={`w-1.5 h-1.5 rounded-full ${ready ? 'bg-emerald-400' : 'bg-gold'}`} />
             <span>
@@ -251,7 +259,8 @@ function Turn({ turn, elapsed }: { turn: ChatTurn; elapsed: number }) {
           {/* The API has no streaming, so stage-by-stage progress cannot be
               shown. The elapsed clock is real; nothing else is claimed. */}
           <p className="text-[11px] font-sans text-ivory/40 mt-1.5">
-            Retrieval, grading and generation run server-side. This typically takes 20–35 seconds.
+            Retrieval, grading and generation run server-side. Duration depends on the selected
+            provider — the clock above is the only figure shown because it is the only one measured.
           </p>
         </div>
       </div>

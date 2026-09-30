@@ -17,7 +17,7 @@ import type { Citation } from '@/types/api'
  */
 
 /** Any bracketed run that is not a markdown link destination. */
-const BRACKET = /\[\s*([^\[\]]+?)\s*\]/g
+const BRACKET = /\[\s*([^[\]]+?)\s*\]/g
 /** A bracket group is a page marker when it opens with p/pp (not a word). */
 const MARKER_START = /^\s*pp?(?![a-z])/i
 /** Bare number inside a marker group, e.g. the 7 in "pp 7" or the 30 in "p24, p30". */

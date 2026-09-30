@@ -114,6 +114,84 @@ def test_health_survives_store_failure(client: TestClient) -> None:
     assert response.json()["status"] == "degraded"
 
 
+def test_health_lists_both_providers(client: TestClient) -> None:
+    client.app.dependency_overrides[get_store] = lambda: FakeStore([])
+    body = client.get("/health").json()
+    assert body["llm_providers"] == ["euron", "groq"]
+
+
+def test_health_reports_unconfigured_llm_when_no_key(monkeypatch, client: TestClient) -> None:
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("EURON_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    reset_settings()
+    client.app.dependency_overrides[get_store] = lambda: FakeStore([])
+    body = client.get("/health").json()
+    assert body["llm_provider"] == "unconfigured"
+    assert body["llm_model"] == "unconfigured"
+    assert body["llm_base_url"] == ""
+
+
+def test_health_reports_resolved_provider_and_model(monkeypatch, client: TestClient) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    reset_settings()
+    client.app.dependency_overrides[get_store] = lambda: FakeStore([])
+    body = client.get("/health").json()
+    assert body["llm_provider"] == "groq"
+    assert body["llm_model"] == "qwen/qwen3.8-27b"
+    assert body["llm_base_url"] == "https://api.groq.com/openai/v1"
+
+
+def test_select_llm_provider_switches_and_health_follows(monkeypatch, client: TestClient) -> None:
+    monkeypatch.setenv("EURON_API_KEY", "euron-key")
+    monkeypatch.setenv("EURI_BASE_URL", "https://euron.invalid/v1")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    monkeypatch.setenv("LLM_PROVIDER", "euron")
+    reset_settings()
+    client.app.dependency_overrides[get_store] = lambda: FakeStore([])
+
+    assert client.get("/health").json()["llm_provider"] == "euron"
+
+    response = client.post("/llm-provider", json={"provider": "groq"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "groq"
+    assert body["base_url"] == "https://api.groq.com/openai/v1"
+    assert client.get("/health").json()["llm_provider"] == "groq"
+
+
+def test_select_llm_provider_null_reverts_to_env(monkeypatch, client: TestClient) -> None:
+    monkeypatch.setenv("EURON_API_KEY", "euron-key")
+    monkeypatch.setenv("EURI_BASE_URL", "https://euron.invalid/v1")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    monkeypatch.setenv("LLM_PROVIDER", "euron")
+    reset_settings()
+    client.app.dependency_overrides[get_store] = lambda: FakeStore([])
+
+    client.post("/llm-provider", json={"provider": "groq"})
+    response = client.post("/llm-provider", json={"provider": None})
+    assert response.status_code == 200
+    assert response.json()["provider"] == "euron"
+    assert client.get("/health").json()["llm_provider"] == "euron"
+
+
+def test_select_llm_provider_rejects_unknown_name(client: TestClient) -> None:
+    response = client.post("/llm-provider", json={"provider": "openai"})
+    assert response.status_code == 422
+    assert "openai" in response.json()["detail"]
+
+
+def test_select_llm_provider_rejects_name_without_key(monkeypatch, client: TestClient) -> None:
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    reset_settings()
+    client.app.dependency_overrides[get_store] = lambda: FakeStore([])
+    response = client.post("/llm-provider", json={"provider": "groq"})
+    assert response.status_code == 422
+    assert "GROQ_API_KEY" in response.json()["detail"]
+
+
 def test_collections_returns_metadata(client: TestClient) -> None:
     client.app.dependency_overrides[get_store] = lambda: FakeStore([FakeHit(0.9, {})])
     response = client.get("/collections")

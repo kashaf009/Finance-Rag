@@ -4,6 +4,8 @@ import type {
   CollectionInfo,
   HealthResponse,
   HttpErrorBody,
+  LLMProviderRequest,
+  LLMProviderResponse,
   SearchRequest,
   SearchResponse,
   ValidationError,
@@ -15,9 +17,13 @@ const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 const HEALTH_TIMEOUT_MS = 8_000
 const SEARCH_TIMEOUT_MS = 60_000
 /**
- * POST /chat blocks for the whole LangGraph run. Measured 19.5s for a
- * supported answer and 33.9s for a refusal (2 query rewrites), with the
- * server's own LLM_TIMEOUT at 120s per call. Keep this well above that.
+ * POST /chat blocks for the whole LangGraph run, and how long that takes
+ * depends on the active provider. Measured on this machine: euron
+ * (gemini-2.5-flash) 19.5s for a supported answer and 33.9s for a refusal
+ * with 2 query rewrites; groq (qwen/qwen3.8-27b) 140.2s for a supported
+ * answer and 156.4s for a refusal. A single run makes 3-5 LLM calls, each
+ * capped by the server's own LLM_TIMEOUT at 120s, so the worst case is well
+ * above any of those. Keep this comfortably clear of the ceiling.
  */
 const CHAT_TIMEOUT_MS = 300_000
 
@@ -54,13 +60,13 @@ export class ApiError extends Error {
   get userMessage(): string {
     switch (this.kind) {
       case 'not_configured':
-        return 'The language model is not configured on the backend. Set LLM_BASE_URL and LLM_API_KEY in backend/.env, then restart the server.'
+        return 'The language model is not configured on the backend. Set an API key for the selected provider in backend/.env (GROQ_API_KEY or EURON_API_KEY), then restart the server.'
       case 'pipeline':
         return this.detail ?? 'The retrieval pipeline failed while answering. Please try again.'
       case 'validation':
         return this.errors.map((e) => e.msg).join(' ') || 'The request was rejected as invalid.'
       case 'timeout':
-        return 'The request took too long. The pipeline retries up to twice, so large questions can run for a minute or more.'
+        return 'The request took too long. How long a run takes depends on the selected provider, and the pipeline may retry retrieval up to twice, so a slow provider can take several minutes.'
       case 'network':
         return 'Could not reach the backend. Make sure it is running on 127.0.0.1:8000.'
       case 'aborted':
@@ -185,5 +191,19 @@ export const chat = (body: ChatRequest, signal?: AbortSignal) =>
     }),
   )
 
-export const api = { getHealth, getCollections, search, chat }
+/**
+ * POST /llm-provider — switch the generation provider.
+ *
+ * Pass `null` to revert to the `LLM_PROVIDER` env value. The backend rejects an
+ * unknown name, or a known one whose API key is missing, with 422 and a detail
+ * naming the variable to set, so the failure arrives as a `validation` ApiError.
+ */
+export const setLLMProvider = (body: LLMProviderRequest, signal?: AbortSignal) =>
+  request<LLMProviderResponse>('/llm-provider', {
+    ...jsonPost(body),
+    timeoutMs: HEALTH_TIMEOUT_MS,
+    signal,
+  })
+
+export const api = { getHealth, getCollections, search, chat, setLLMProvider }
 export { BASE as API_BASE }

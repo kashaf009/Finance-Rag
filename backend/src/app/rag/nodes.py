@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.core.config import AppSettings
 from app.core.logging import get_logger
 from app.embed import Embedder
-from app.llm import ANSWER, UTILITY, build_llm, text_of, to_prompt_data_uri
+from app.llm import MAX_GRADER_PAGES, ANSWER, UTILITY, build_llm, text_of, to_prompt_data_uri
 from app.llm.prompts import (
     ANSWER_SYSTEM,
     GRADE_PROMPT,
@@ -34,7 +34,6 @@ logger = get_logger("rag.nodes")
 # see build_citations. The previous r"\[p(\d+)\]" matched nothing in a grouped
 # marker, which left the citation filter with no referenced pages.
 PAGE_MARKER = re.compile(r"\[p(\d+(?:\s*,\s*p?\s*\d+)*)\]")
-MAX_GRADER_PAGES = 2
 
 
 class RagError(RuntimeError):

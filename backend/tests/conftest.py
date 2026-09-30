@@ -7,14 +7,46 @@ import pytest
 from PIL import Image, ImageDraw
 
 from app.core.config import reset_settings
+from app.llm import reset_llm_cache, set_active_provider
 from tests.fakes import FakeClient, FakeEmbedder, FakeModels
 
 
 @pytest.fixture(autouse=True)
 def _reset_settings() -> Iterator[None]:
     reset_settings()
+    set_active_provider(None)
+    reset_llm_cache()
     yield
     reset_settings()
+    set_active_provider(None)
+    reset_llm_cache()
+
+
+# create_app() calls load_env(), which would otherwise inject the developer's real
+# backend/.env into os.environ for the whole session and make provider resolution
+# depend on local machine config.
+_PROVIDER_ENV = (
+    "LLM_PROVIDER",
+    "LLM_MODEL",
+    "LLM_GRADER_MODEL",
+    "LLM_BASE_URL",
+    "LLM_API_KEY",
+    "GROQ_API_KEY",
+    "GROQ_BASE_URL",
+    "EURON_API_KEY",
+    "EURON_BASE_URL",
+    "EURI_BASE_URL",
+    "LLM_MAX_PAGES",
+    "LLM_REASONING_EFFORT",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_provider_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    monkeypatch.setattr("app.main.load_env", lambda *a, **k: False)
+    for name in _PROVIDER_ENV:
+        monkeypatch.delenv(name, raising=False)
+    yield
 
 
 def _page(size: tuple[int, int], label: str) -> Image.Image:

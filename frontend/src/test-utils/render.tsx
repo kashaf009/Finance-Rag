@@ -14,6 +14,8 @@ export const OK_HEALTH: HealthResponse = {
   collection: 'finance_pages',
   collection_ready: true,
   points: 139,
+  llm_provider: 'euron',
+  llm_providers: ['euron', 'groq'],
   llm_model: 'gemini-2.5-flash',
   llm_base_url: 'https://api.euron.one/api/v1/euri',
   embed_model: 'gemini-embedding-2',
@@ -77,4 +79,20 @@ export function readHeadline(): string {
   return [...document.querySelectorAll('[data-hero-word]')]
     .map((el) => el.textContent?.trim() ?? '')
     .join(' ')
+}
+
+/** Health as reported when the backend cannot resolve a usable key or URL. */
+export const UNCONFIGURED_HEALTH: HealthResponse = {
+  ...OK_HEALTH,
+  llm_provider: 'unconfigured',
+  llm_model: 'unconfigured',
+  llm_base_url: '',
+}
+
+/** Health as reported while groq is active, with its own resolved model. */
+export const GROQ_HEALTH: HealthResponse = {
+  ...OK_HEALTH,
+  llm_provider: 'groq',
+  llm_model: 'qwen/qwen3.8-27b',
+  llm_base_url: 'https://api.groq.com/openai/v1',
 }
