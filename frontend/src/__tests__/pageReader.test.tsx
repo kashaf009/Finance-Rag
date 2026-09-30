@@ -72,6 +72,24 @@ describe('page reader', () => {
     )
   })
 
+  it('reserves each card box from the measured render dimensions', async () => {
+    stubDocument()
+    renderApp('/document')
+    await expectFacts('139 pages')
+
+    // Not a hardcoded 1024/1408: the box follows whatever the endpoint reports.
+    expect(screen.getByAltText('Page 1').style.aspectRatio).toBe('1024 / 1408')
+  })
+
+  it('moves the card box when the ingest dimensions change', async () => {
+    // A different max edge at embed time must not leave the grid reserving the
+    // old shape and letterboxing every page.
+    stubDocument({ ...DOCUMENT_PAGES, page_width: 800, page_height: 1100 })
+    renderApp('/document')
+    await expectFacts('800 x 1100 px')
+    expect(screen.getByAltText('Page 1').style.aspectRatio).toBe('800 / 1100')
+  })
+
   it('links each card to the full-resolution render for that page', async () => {
     stubDocument()
     renderApp('/document')

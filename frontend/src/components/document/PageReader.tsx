@@ -42,6 +42,11 @@ export function PageReader() {
         : 'Could not read the page inventory.'
 
   const pageCount = data?.page_count ?? 0
+  // "1024 / 1408" as a CSS aspect-ratio, from the measured render.
+  const pageRatio =
+    data?.page_width && data?.page_height
+      ? `${data.page_width} / ${data.page_height}`
+      : null
   const pages = Array.from({ length: pageCount }, (_, i) => i + 1)
 
   const close = useCallback(() => setOpenPage(null), [])
@@ -124,7 +129,18 @@ export function PageReader() {
                       alt={`Page ${page}`}
                       // object-contain, never object-cover: cropping a page
                       // render to fill a card hides evidence of what is on it.
-                      className="block aspect-[1024/1408] w-full object-contain"
+                      className="block w-full object-contain"
+                      // The reserved box comes from the render's own measured
+                      // dimensions, not a hardcoded 1024/1408. If the ingest's
+                      // max edge is ever changed the grid follows it instead of
+                      // reserving the wrong space and letterboxing every page.
+                      // Left unset when unknown, where object-contain still
+                      // prevents cropping.
+                      style={
+                        pageRatio
+                          ? { aspectRatio: pageRatio }
+                          : { minHeight: '1px' }
+                      }
                     />
                   </span>
                   <span className="mt-2 block font-mono text-xs text-ivory/60">
