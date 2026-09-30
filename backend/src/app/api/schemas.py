@@ -66,3 +66,20 @@ class CollectionInfo(BaseModel):
     vector_size: int | None
     points: int | None
     distance: str | None = None
+
+
+class DocumentPagesResponse(BaseModel):
+    """Inventory of the page renders already written by the ingest run.
+
+    Every field is measured from disk at request time. The nulls are real
+    states, not placeholders: they mean the ingest has not run (or produced
+    nothing) for this document, and the client must not invent values for
+    them.
+    """
+
+    doc_id: str | None
+    pdf_filename: str | None
+    pdf_byte_size: int | None
+    page_count: int
+    page_width: int | None
+    page_height: int | None

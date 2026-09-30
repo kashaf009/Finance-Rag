@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from app.api.deps import get_rag_service, get_store
 from app.core.config import get_settings, reset_settings
 from app.main import create_app
 from app.rag import AnswerResult, Citation, RagError
+from tests.conftest import _page
 from tests.fakes import FakeHit, FakeStore
 
 
@@ -291,3 +293,116 @@ def test_cors_headers_applied_when_origin_allowed(monkeypatch) -> None:
 
 def test_settings_defaults_bind_to_loopback() -> None:
     assert get_settings().api_host == "127.0.0.1"
+
+
+# --- /document: the page-image reader ---------------------------------------
+#
+# These build real JPEGs in a tmp_path rather than stubbing the filesystem,
+# because the route's whole job is reporting what is actually on disk. A stub
+# would pass while the real glob and PIL calls stayed broken.
+
+DOC_ID = "Test_Doc_2023_42"
+
+
+def _seed_ingest(root: Path, page_count: int = 3, pdf_bytes: bytes = b"%PDF-1.7\n") -> Path:
+    """Write page_NNNN.jpg renders plus the matching PDF, as ingest would."""
+    doc_dir = root / "pages" / DOC_ID
+    doc_dir.mkdir(parents=True)
+    for n in range(1, page_count + 1):
+        _page((120, 165), f"page {n}").save(doc_dir / f"page_{n:04d}.jpg", "JPEG")
+    docs_dir = root / "docs"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / f"{DOC_ID}.pdf").write_bytes(pdf_bytes)
+    return doc_dir
+
+
+def _client_for_ingest(monkeypatch: pytest.MonkeyPatch, root: Path) -> TestClient:
+    monkeypatch.setenv("STORAGE_DIR", str(root / "pages"))
+    monkeypatch.setenv("DOCS_DIR", str(root / "docs"))
+    reset_settings()
+    return TestClient(create_app())
+
+
+def test_document_pages_reports_the_renders_on_disk(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pdf = b"%PDF-1.7" + b"x" * 40
+    _seed_ingest(tmp_path, page_count=3, pdf_bytes=pdf)
+    with _client_for_ingest(monkeypatch, tmp_path) as client:
+        response = client.get("/document/pages")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["doc_id"] == DOC_ID
+    assert body["page_count"] == 3
+    # Measured from the file we just wrote, not a hardcoded constant.
+    assert body["pdf_byte_size"] == len(pdf)
+    assert body["pdf_filename"] == f"{DOC_ID}.pdf"
+    # Read from the render itself, not a constant.
+    assert (body["page_width"], body["page_height"]) == (120, 165)
+
+
+def test_document_page_serves_the_file_verbatim(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    doc_dir = _seed_ingest(tmp_path, page_count=3)
+    with _client_for_ingest(monkeypatch, tmp_path) as client:
+        response = client.get("/document/page/2")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    # The whole point: the bytes are the ingest's, unmodified.
+    assert response.content == (doc_dir / "page_0002.jpg").read_bytes()
+
+
+def test_document_page_sets_an_immutable_cache_header(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _seed_ingest(tmp_path, page_count=1)
+    with _client_for_ingest(monkeypatch, tmp_path) as client:
+        response = client.get("/document/page/1")
+    assert "immutable" in response.headers["cache-control"]
+
+
+@pytest.mark.parametrize("page", [0, -1, 4, 9999])
+def test_document_page_404s_outside_the_rendered_range(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, page: int
+) -> None:
+    _seed_ingest(tmp_path, page_count=3)
+    with _client_for_ingest(monkeypatch, tmp_path) as client:
+        assert client.get(f"/document/page/{page}").status_code == 404
+
+
+def test_document_page_rejects_a_non_integer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _seed_ingest(tmp_path, page_count=1)
+    with _client_for_ingest(monkeypatch, tmp_path) as client:
+        assert client.get("/document/page/not-a-page").status_code == 422
+
+
+def test_document_endpoints_degrade_when_the_ingest_has_not_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A missing ingest is a state the client must render honestly, not a 500."""
+    with _client_for_ingest(monkeypatch, tmp_path) as client:
+        response = client.get("/document/pages")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["page_count"] == 0
+        assert body["doc_id"] is None
+        assert body["pdf_byte_size"] is None
+        assert body["page_width"] is None
+        assert client.get("/document/page/1").status_code == 404
+
+
+def test_document_pages_counts_renders_without_a_pdf(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Renders on disk but no PDF: the count is still real, the PDF is null."""
+    doc_dir = tmp_path / "pages" / DOC_ID
+    doc_dir.mkdir(parents=True)
+    _page((80, 100), "only page").save(doc_dir / "page_0001.jpg", "JPEG")
+    with _client_for_ingest(monkeypatch, tmp_path) as client:
+        body = client.get("/document/pages").json()
+    assert body["page_count"] == 1
+    assert body["pdf_filename"] is None
+    assert body["pdf_byte_size"] is None
