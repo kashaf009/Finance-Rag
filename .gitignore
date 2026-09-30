@@ -1,8 +1,16 @@
 .env
 node_modules
 
+# macOS
+.DS_Store
+
 # Backend artifacts
 backend/storage/
 backend/.venv/
 __pycache__/
 *.py[oc]
+
+# Frontend
+frontend/dist/
+# 483KB design reference mockup — regenerable, not worth versioning
+frontend/ui.png
