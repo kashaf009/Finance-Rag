@@ -77,7 +77,11 @@ describe('ApiError', () => {
   })
 
   it('mentions the retry behaviour for timeouts', () => {
-    expect(new ApiError('timeout', 't').userMessage).toMatch(/retries up to twice/)
+    const message = new ApiError('timeout', 't').userMessage
+    expect(message).toMatch(/retry retrieval up to twice/)
+    // No fixed duration: run time varies by provider, so quoting one would be
+    // a claim the UI cannot back up.
+    expect(message).not.toMatch(/\d+\s*seconds?/)
   })
 
   it('tells the user to start the backend for network errors', () => {
