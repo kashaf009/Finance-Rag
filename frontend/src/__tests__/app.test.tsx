@@ -91,7 +91,7 @@ describe('routing', () => {
   const routes: Array<[string, () => void]> = [
     ['/', () => expect(readHeadline()).toBe('Every answer, anchored to a page.')],
     ['/chat', () => expect(screen.getByTestId('chat-panel')).toBeInTheDocument()],
-    ['/document', () => expect(screen.getByText(/step 13 — pdf reader/i)).toBeInTheDocument()],
+    ['/document', () => expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()],
   ]
 
   it.each(routes)('%s renders its page', (path, assert) => {

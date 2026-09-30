@@ -5,7 +5,7 @@ import { vi } from 'vitest'
 
 import App from '@/App'
 import { queryClient } from '@/lib/queryClient'
-import type { HealthResponse } from '@/types/api'
+import type { DocumentPagesResponse, HealthResponse } from '@/types/api'
 
 /** A fully healthy /health payload, matching the real backend shape. */
 export const OK_HEALTH: HealthResponse = {
@@ -30,8 +30,32 @@ export const DEGRADED_HEALTH: HealthResponse = {
   points: 0,
 }
 
-export function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
+/**
+ * A real captured GET /document/pages response, against the real 139-page
+ * render set. `pdf_byte_size` is the actual size of
+ * docs/JPM_SE_Annual_2023_140.pdf, and the pixel dimensions are what the
+ * ingest produced.
+ */
+export const DOCUMENT_PAGES: DocumentPagesResponse = {
+  doc_id: 'JPM_SE_Annual_2023_140',
+  pdf_filename: 'JPM_SE_Annual_2023_140.pdf',
+  pdf_byte_size: 1_064_053,
+  page_count: 139,
+  page_width: 1024,
+  page_height: 1408,
+}
+
+/** What the backend reports when the ingest has written nothing. */
+export const NO_DOCUMENT_PAGES: DocumentPagesResponse = {
+  doc_id: null,
+  pdf_filename: null,
+  pdf_byte_size: null,
+  page_count: 0,
+  page_width: null,
+  page_height: null,
+}
+
+export function jsonResponse(body: unknown, status = 200): Response {  return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
