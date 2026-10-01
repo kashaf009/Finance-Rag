@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "items": [
+    {
+      "title": "audit accessibility gaps in the current frontend",
+      "status": "done"
+    },
+    {
+      "title": "implement focus return and visible focus states",
+      "status": "done"
+    },
+    {
+      "title": "add regression tests for keyboard behavior",
+      "status": "in-progress"
+    },
+    {
+      "title": "run frontend gates and report verification limits",
+      "status": "pending"
+    }
+  ],
+  "updated_at": "2026-09-30T14:54:42.505Z",
+  "session_id": "01a0f2bc-51e3-74bf-b892-a627fbb73dce"
+}
