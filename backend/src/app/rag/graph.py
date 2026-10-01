@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -16,6 +17,28 @@ from app.rag.nodes import (
 from app.rag.state import RAGState
 
 Node = Callable[[RAGState], RAGState]
+
+
+def _timed(name: str, fn: Callable[[RAGState, RagDeps], RAGState], deps: RagDeps) -> Node:
+    """Wrap a node so the trace entry it appends carries its own wall clock.
+
+    The duration is measured here, once, and both callers read it from the same
+    place: POST /chat returns it in the trace, and the streaming endpoint emits
+    it as the node's stage duration. Nothing downstream re-derives it, so the
+    two paths cannot disagree.
+    """
+
+    def run(state: RAGState) -> RAGState:
+        start = time.perf_counter()
+        out = fn(state, deps)
+        elapsed_ms = round((time.perf_counter() - start) * 1000)
+        trace = list(out.get("trace") or [])
+        if trace:
+            trace[-1] = {**trace[-1], "ms": elapsed_ms}
+        return {**out, "trace": trace}
+
+    run.__name__ = name
+    return run
 
 
 def _make_router(deps: RagDeps) -> Callable[[RAGState], str]:
