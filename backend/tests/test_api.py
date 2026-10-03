@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ class StubService:
         self.error = error
         self.answered: list[tuple[str, int | None]] = []
         self.searched: list[tuple[str, int | None]] = []
+        self.streamed: list[tuple[str, int | None]] = []
 
     def search(self, query: str, limit: int | None = None) -> list[Citation]:
         self.searched.append((query, limit))
@@ -34,6 +36,23 @@ class StubService:
             raise self.error
         assert self.result is not None
         return self.result
+
+    def stream(self, question: str, top_k: int | None = None) -> Iterator[dict[str, object]]:
+        self.streamed.append((question, top_k))
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None
+        yield {
+            "type": "stage",
+            "stage": "retrieve",
+            "status": "running",
+            "message": "Retrieving relevant pages",
+            "step": 0,
+        }
+        yield {
+            "type": "complete",
+            "response": self.result,
+        }
 
 
 def _result(**overrides: Any) -> AnswerResult:
@@ -255,6 +274,69 @@ def test_chat_passes_top_k(client_with_service: TestClient, service: StubService
     assert service.answered == [("q", 2)]
 
 
+def _sse_frames(body: str) -> list[tuple[str, dict[str, object]]]:
+    frames: list[tuple[str, dict[str, object]]] = []
+    for block in body.split("\n\n"):
+        if not block.strip():
+            continue
+        lines = block.splitlines()
+        event = next(line.removeprefix("event: ") for line in lines if line.startswith("event:"))
+        data = next(line.removeprefix("data: ") for line in lines if line.startswith("data:"))
+        frames.append((event, json.loads(data)))
+    return frames
+
+
+def test_chat_stream_emits_stage_and_complete_sse_events(
+    client_with_service: TestClient, service: StubService
+) -> None:
+    response = client_with_service.post("/chat/stream", json={"question": "q", "top_k": 2})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["cache-control"] == "no-cache"
+    assert service.streamed == [("q", 2)]
+
+    frames = _sse_frames(response.text)
+    assert [event for event, _ in frames] == ["stage", "complete"]
+    assert frames[0][1] == {
+        "stage": "retrieve",
+        "status": "running",
+        "message": "Retrieving relevant pages",
+        "step": 0,
+    }
+    assert frames[1][1]["response"] == {
+        "question": "What was net income?",
+        "query": "net income",
+        "answer": "Net income was 37.7 billion. [p12]",
+        "supported": True,
+        "rewrites": 0,
+        "pages_considered": 1,
+        "citations": [
+            {
+                "doc_id": "doc",
+                "page_number": 12,
+                "score": 0.91,
+                "image": "data:image/jpeg;base64,AAAA",
+            }
+        ],
+        "trace": [{"node": "retrieve"}],
+    }
+
+
+def test_chat_stream_emits_pipeline_errors_as_sse(client: TestClient) -> None:
+    client.app.dependency_overrides[get_rag_service] = lambda: StubService(error=RagError("boom"))
+
+    response = client.post("/chat/stream", json={"question": "q"})
+
+    assert response.status_code == 200
+    assert _sse_frames(response.text) == [
+        (
+            "error",
+            {"status": 502, "kind": "pipeline", "detail": "boom"},
+        )
+    ]
+
+
 def test_chat_rejects_empty_question(client_with_service: TestClient, service: StubService) -> None:
     assert client_with_service.post("/chat", json={"question": ""}).status_code == 422
 
@@ -281,10 +363,19 @@ def test_openapi_schema_documents_core_endpoints(client_with_service: TestClient
     assert "/collections" in schema["paths"]
     assert "/search" in schema["paths"]
     assert "/chat" in schema["paths"]
+    assert "/chat/stream" in schema["paths"]
 
 
 def test_cors_headers_applied_when_origin_allowed(monkeypatch) -> None:
     monkeypatch.setenv("API_CORS_ORIGINS", "http://localhost:5173")
+    reset_settings()
+    with TestClient(create_app()) as test_client:
+        response = test_client.get("/health", headers={"Origin": "http://localhost:5173"})
+        assert response.headers.get("access-control-allow-origin") == "http://localhost:5173"
+
+
+def test_cors_allows_local_frontend_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("API_CORS_ORIGINS", raising=False)
     reset_settings()
     with TestClient(create_app()) as test_client:
         response = test_client.get("/health", headers={"Origin": "http://localhost:5173"})

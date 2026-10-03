@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertCircle, Cpu, RotateCcw, Send, Square } from 'lucide-react'
+import { AlertCircle, Check, Cpu, Loader2, RotateCcw, Send, Square } from 'lucide-react'
 
 import { useChat } from '@/hooks/useChat'
 import { useHealth } from '@/hooks/useHealth'
-import { formatLatency, provenanceLine, type ChatTurn } from '@/lib/chat'
+import { formatLatency, provenanceLine, type ChatProgress, type ChatTurn } from '@/lib/chat'
 import { formatPage, formatScore } from '@/lib/citations'
 import { DOCUMENT } from '@/lib/document'
 import { LIMITS } from '@/types/api'
@@ -245,6 +245,7 @@ function Turn({ turn, elapsed }: { turn: ChatTurn; elapsed: number }) {
   }
 
   if (turn.pending) {
+    const latest = turn.progress[turn.progress.length - 1]
     return (
       <div className="flex items-start space-x-3.5" data-testid="chat-thinking">
         <div className="w-8 h-8 rounded-full bg-noir border border-gold flex items-center justify-center text-gold shrink-0 mt-1 shadow-sm">
@@ -253,15 +254,10 @@ function Turn({ turn, elapsed }: { turn: ChatTurn; elapsed: number }) {
         <div className="max-w-[92%] sm:max-w-[88%] rounded-2xl bg-noir border border-white/10 px-5 py-4">
           <div className="flex items-center gap-2 text-[11px] font-mono text-gold">
             <span className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse" aria-hidden />
-            <span>Running the retrieval pipeline</span>
+            <span aria-live="polite">{latest?.message ?? 'Running the retrieval pipeline'}</span>
             <span className="text-ivory/40 ml-auto tabular-nums">{formatClock(elapsed)}</span>
           </div>
-          {/* The API has no streaming, so stage-by-stage progress cannot be
-              shown. The elapsed clock is real; nothing else is claimed. */}
-          <p className="text-[11px] font-sans text-ivory/40 mt-1.5">
-            Retrieval, grading and generation run server-side. Duration depends on the selected
-            provider — the clock above is the only figure shown because it is the only one measured.
-          </p>
+          <StageProgress progress={turn.progress} />
         </div>
       </div>
     )
@@ -325,5 +321,68 @@ function Turn({ turn, elapsed }: { turn: ChatTurn; elapsed: number }) {
         </div>
       </div>
     </div>
+  )
+}
+
+const STAGE_LABELS: Record<ChatProgress['stage'], string> = {
+  retrieve: 'Retrieve pages',
+  grade: 'Check relevance',
+  rewrite_query: 'Refine query',
+  generate: 'Generate answer',
+  self_check: 'Verify grounding',
+}
+
+function progressDetail(item: ChatProgress): string | null {
+  const meta = item.meta
+  if (!meta) return null
+  if (item.stage === 'retrieve') {
+    const pages = Array.isArray(meta.pages) ? meta.pages : []
+    const labels = pages
+      .map((page) => {
+        if (!page || typeof page !== 'object') return null
+        const value = page as { page_number?: unknown; score?: unknown }
+        return typeof value.page_number === 'number' && typeof value.score === 'number'
+          ? `p${value.page_number} · ${value.score.toFixed(3)}`
+          : null
+      })
+      .filter((value): value is string => value !== null)
+    return labels.length > 0 ? labels.join('  ') : null
+  }
+  if (item.stage === 'rewrite_query' && typeof meta.query === 'string') return meta.query
+  if (item.stage === 'generate' && typeof meta.pages === 'number') return `${meta.pages} pages supplied`
+  return null
+}
+
+function StageProgress({ progress }: { progress: ChatProgress[] }) {
+  return (
+    <ol
+      className="mt-3 space-y-1.5 border-l border-gold/25 pl-3"
+      aria-label="RAG pipeline progress"
+      data-testid="pipeline-progress"
+    >
+      {progress.map((item, index) => {
+        const detail = progressDetail(item)
+        return (
+          <li
+            key={item.id}
+            data-testid={`stage-${item.stage}-${index}`}
+            className="relative text-[10px] font-mono text-ivory/65"
+          >
+            <span className="absolute -left-[19px] top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-noir">
+              {item.status === 'complete' ? (
+                <Check className="h-2.5 w-2.5 text-emerald-400" aria-hidden />
+              ) : (
+                <Loader2 className="h-2.5 w-2.5 animate-spin text-gold" aria-hidden />
+              )}
+            </span>
+            <span className={item.status === 'running' ? 'text-gold' : 'text-ivory/65'}>
+              {STAGE_LABELS[item.stage]}
+            </span>
+            <span className="ml-2 text-ivory/35">{item.status === 'complete' ? 'done' : 'in progress'}</span>
+            {detail ? <span className="mt-0.5 block truncate text-ivory/35">{detail}</span> : null}
+          </li>
+        )
+      })}
+    </ol>
   )
 }

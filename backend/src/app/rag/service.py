@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -15,6 +16,75 @@ from app.rag.state import RAGState, RetrievedPage
 from app.vector import QdrantStore
 
 logger = get_logger("rag.service")
+
+
+def _running_stage_message(stage: str) -> str:
+    return {
+        "retrieve": "Retrieving relevant pages",
+        "grade": "Checking page relevance",
+        "rewrite_query": "Refining the retrieval query",
+        "generate": "Generating a grounded answer",
+        "self_check": "Verifying the answer against the pages",
+    }.get(stage, f"Running {stage}")
+
+
+def _completed_stage_message(stage: str, step: dict[str, object]) -> str:
+    if stage == "retrieve":
+        return f"Retrieved {step.get('hits', 0)} relevant pages"
+    if stage == "grade":
+        return (
+            "Pages passed the relevance check"
+            if step.get("relevant")
+            else "Pages did not pass the relevance check"
+        )
+    if stage == "rewrite_query":
+        return "Retrieval query refined"
+    if stage == "generate":
+        if step.get("outcome") == "refusal":
+            return "No grounded answer could be drafted"
+        return f"Answer drafted from {step.get('pages', 0)} pages"
+    if stage == "self_check":
+        return (
+            "Answer verified against the source pages"
+            if step.get("supported")
+            else "Answer was not supported by the source pages"
+        )
+    return f"Completed {stage}"
+
+
+def _next_stage(stage: str, state: RAGState, max_rewrites: int) -> str | None:
+    if stage == "retrieve":
+        return "grade"
+    if stage == "grade":
+        if not state.get("relevant") and state.get("rewrite_count", 0) < max_rewrites:
+            return "rewrite_query"
+        return "generate"
+    if stage == "rewrite_query":
+        return "retrieve"
+    if stage == "generate":
+        return "self_check"
+    return None
+
+
+def _stream_meta(stage: str, step: dict[str, object], state: RAGState) -> dict[str, object]:
+    if stage == "retrieve":
+        pages = state.get("pages") or []
+        return {
+            "query": state.get("query") or "",
+            "hits": len(pages),
+            "pages": [
+                {"page_number": page["page_number"], "score": page["score"]} for page in pages
+            ],
+        }
+    if stage == "rewrite_query":
+        return {"query": step.get("query") or state.get("query") or ""}
+    if stage == "generate":
+        return {"pages": step.get("pages", 0), "chars": step.get("chars", 0)}
+    if stage == "grade":
+        return {"relevant": bool(step.get("relevant"))}
+    if stage == "self_check":
+        return {"supported": bool(step.get("supported"))}
+    return {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,9 +113,7 @@ def build_citations(
     # PAGE_MARKER captures the whole bracket body, which may name several pages
     # ("24, p30"), so pull every number out of it rather than int()-ing the group.
     referenced = {
-        int(number)
-        for group in PAGE_MARKER.findall(answer)
-        for number in re.findall(r"\d+", group)
+        int(number) for group in PAGE_MARKER.findall(answer) for number in re.findall(r"\d+", group)
     }
     selected = [
         page for page in pages[:max_pages] if not referenced or page["page_number"] in referenced
@@ -94,8 +162,60 @@ class RagService:
         ]
 
     def answer(self, question: str, top_k: int | None = None) -> AnswerResult:
+        final: RAGState = self._graph.invoke(self._initial_state(question, top_k))
+        return self._result_from_state(question, final)
+
+    def stream(self, question: str, top_k: int | None = None) -> Iterator[dict[str, object]]:
+        """Yield truthful pipeline updates while the Self-RAG graph is running.
+
+        LangGraph emits a state snapshot after each node. The stream translates
+        those snapshots into small UI-safe events, so retrieval and grading can
+        be shown before the slower generation and verification calls finish.
+        """
+        initial = self._initial_state(question, top_k)
+        yield {
+            "type": "stage",
+            "stage": "retrieve",
+            "status": "running",
+            "message": "Retrieving relevant pages",
+            "step": 0,
+        }
+
+        previous_trace: list[dict[str, object]] = []
+        final: RAGState | None = None
+        for snapshot in self._graph.stream(initial, stream_mode="values"):
+            state = dict(snapshot)
+            final = state
+            trace = list(state.get("trace") or [])
+            new_steps = trace[len(previous_trace) :]
+            for step in new_steps:
+                node = str(step.get("node") or "unknown")
+                yield {
+                    "type": "stage",
+                    "stage": node,
+                    "status": "complete",
+                    "message": _completed_stage_message(node, step),
+                    "step": len(previous_trace) + 1,
+                    "meta": _stream_meta(node, step, state),
+                }
+                next_stage = _next_stage(node, state, self._deps.settings.rag_max_rewrites)
+                if next_stage is not None:
+                    yield {
+                        "type": "stage",
+                        "stage": next_stage,
+                        "status": "running",
+                        "message": _running_stage_message(next_stage),
+                        "step": len(previous_trace) + 1,
+                    }
+                previous_trace.append(step)
+
+        if final is None:
+            final = initial
+        yield {"type": "complete", "response": self._result_from_state(question, final)}
+
+    def _initial_state(self, question: str, top_k: int | None) -> RAGState:
         cfg = self._deps.settings
-        initial: RAGState = {
+        return {
             "question": question,
             "original_question": question,
             "query": question,
@@ -107,7 +227,9 @@ class RagService:
             "supported": False,
             "trace": [],
         }
-        final: RAGState = self._graph.invoke(initial)
+
+    def _result_from_state(self, question: str, final: RAGState) -> AnswerResult:
+        cfg = self._deps.settings
         pages = final.get("pages") or []
         supported = bool(final.get("supported"))
         answer = final.get("answer") or ""

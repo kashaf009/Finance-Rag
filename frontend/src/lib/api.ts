@@ -1,6 +1,7 @@
 import type {
   ChatRequest,
   ChatResponse,
+  ChatStreamEvent,
   CollectionInfo,
   DocumentPagesResponse,
   HealthResponse,
@@ -14,13 +15,13 @@ import type {
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 
-/** Local inference only. The backend has no streaming. */
+/** Local inference only. */
 const HEALTH_TIMEOUT_MS = 8_000
 const SEARCH_TIMEOUT_MS = 60_000
 /** A local scandir plus one PIL header read. No reason for this to be slow. */
 const DOCUMENT_TIMEOUT_MS = 8_000
 /**
- * POST /chat blocks for the whole LangGraph run, and how long that takes
+ * POST /chat and POST /chat/stream run the whole LangGraph pipeline, and how long that takes
  * depends on the active provider. Measured on this machine: euron
  * (gemini-2.5-flash) 19.5s for a supported answer and 33.9s for a refusal
  * with 2 query rewrites; groq (qwen/qwen3.8-27b) 140.2s for a supported
@@ -150,6 +151,116 @@ async function request<T>(
   return (await response.json()) as T
 }
 
+async function streamRequest<T>(
+  path: string,
+  init: RequestInit & { timeoutMs?: number },
+  onEvent: (event: ChatStreamEvent) => void,
+): Promise<T> {
+  const { timeoutMs = 30_000, signal: outerSignal, ...rest } = init
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  const onOuterAbort = () => controller.abort()
+  outerSignal?.addEventListener('abort', onOuterAbort)
+
+  let response: Response
+  try {
+    response = await fetch(`${BASE}${path}`, { ...rest, signal: controller.signal })
+  } catch (err) {
+    clearTimeout(timer)
+    outerSignal?.removeEventListener('abort', onOuterAbort)
+    if (timedOut) throw new ApiError('timeout', `Request to ${path} timed out after ${timeoutMs}ms`)
+    if (outerSignal?.aborted) throw new ApiError('aborted', `Request to ${path} was aborted`)
+    throw new ApiError('network', `Request to ${path} failed: ${(err as Error).message}`)
+  }
+
+  if (!response.ok) {
+    let parsed: { detail: string | null; errors: ValidationError[] } = { detail: null, errors: [] }
+    try {
+      parsed = parseBody(await response.json())
+    } catch {
+      /* non-JSON error body */
+    }
+    clearTimeout(timer)
+    outerSignal?.removeEventListener('abort', onOuterAbort)
+    const kind = kindForStatus(response.status)
+    const message =
+      parsed.detail ?? parsed.errors[0]?.msg ?? `${path} failed with status ${response.status}`
+    throw new ApiError(kind, message, {
+      status: response.status,
+      detail: parsed.detail,
+      errors: parsed.errors,
+    })
+  }
+
+  if (!response.body) {
+    clearTimeout(timer)
+    outerSignal?.removeEventListener('abort', onOuterAbort)
+    throw new ApiError('pipeline', 'The streaming response had no body.', { status: 502 })
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let eventName = 'message'
+  let dataLines: string[] = []
+  let complete: T | null = null
+
+  const emit = () => {
+    if (dataLines.length === 0) {
+      eventName = 'message'
+      return
+    }
+    const raw = dataLines.join('\n')
+    dataLines = []
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const event = { ...parsed, type: parsed.type ?? eventName } as ChatStreamEvent
+    if (event.type === 'error') {
+      throw new ApiError(event.kind, event.detail, { status: event.status, detail: event.detail })
+    }
+    onEvent(event)
+    if (event.type === 'complete') complete = event.response as T
+    eventName = 'message'
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done })
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        if (line.startsWith('event:')) eventName = line.slice(6).trim()
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
+        else if (line === '') emit()
+      }
+      if (done) {
+        if (buffer === '') emit()
+        break
+      }
+    }
+  } catch (err) {
+    if (timedOut) throw new ApiError('timeout', `Request to ${path} timed out after ${timeoutMs}ms`)
+    if (outerSignal?.aborted) throw new ApiError('aborted', `Request to ${path} was aborted`)
+    if (err instanceof ApiError) throw err
+    throw new ApiError('network', `Request to ${path} failed: ${(err as Error).message}`)
+  } finally {
+    clearTimeout(timer)
+    outerSignal?.removeEventListener('abort', onOuterAbort)
+    reader.releaseLock()
+  }
+
+  if (complete === null) {
+    throw new ApiError('pipeline', 'The streaming response ended before an answer was received.', {
+      status: 502,
+    })
+  }
+  return complete
+}
+
 const jsonPost = (body: unknown): RequestInit => ({
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -184,7 +295,7 @@ export const search = (body: SearchRequest, signal?: AbortSignal) =>
     signal,
   })
 
-/** POST /chat — full Self-RAG run. Long-running; no streaming available. */
+/** POST /chat — full Self-RAG run, retained for non-interactive clients. */
 export const chat = (body: ChatRequest, signal?: AbortSignal) =>
   measured(() =>
     request<ChatResponse>('/chat', {
@@ -192,6 +303,20 @@ export const chat = (body: ChatRequest, signal?: AbortSignal) =>
       timeoutMs: CHAT_TIMEOUT_MS,
       signal,
     }),
+  )
+
+/** POST /chat/stream — full Self-RAG run with stage-by-stage SSE updates. */
+export const streamChat = (
+  body: ChatRequest,
+  onEvent: (event: ChatStreamEvent) => void,
+  signal?: AbortSignal,
+) =>
+  measured(() =>
+    streamRequest<ChatResponse>(
+      '/chat/stream',
+      { ...jsonPost(body), timeoutMs: CHAT_TIMEOUT_MS, signal },
+      onEvent,
+    ),
   )
 
 /**
@@ -242,6 +367,7 @@ export const api = {
   getCollections,
   search,
   chat,
+  streamChat,
   setLLMProvider,
   getDocumentPages,
 }

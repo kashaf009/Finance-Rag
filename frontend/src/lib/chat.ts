@@ -1,5 +1,5 @@
 import type { ApiError } from '@/lib/api'
-import type { ChatResponse } from '@/types/api'
+import type { ChatResponse, ChatStage } from '@/types/api'
 
 /**
  * One row in the transcript.
@@ -20,6 +20,15 @@ export interface ChatTurn {
   elapsedMs: number | null
   error: ApiError | null
   pending: boolean
+  progress: ChatProgress[]
+}
+
+export interface ChatProgress {
+  id: string
+  stage: ChatStage
+  status: 'running' | 'complete'
+  message: string
+  meta?: Record<string, unknown>
 }
 
 let sequence = 0

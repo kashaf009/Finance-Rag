@@ -54,11 +54,11 @@ def _make_router(deps: RagDeps) -> Callable[[RAGState], str]:
 
 def build_graph(deps: RagDeps) -> Any:
     builder: StateGraph = StateGraph(RAGState)
-    builder.add_node("retrieve", lambda state: retrieve(state, deps))
-    builder.add_node("grade_documents", lambda state: grade_documents(state, deps))
-    builder.add_node("rewrite_query", lambda state: rewrite_query(state, deps))
-    builder.add_node("generate", lambda state: generate(state, deps))
-    builder.add_node("self_check", lambda state: self_check(state, deps))
+    builder.add_node("retrieve", _timed("retrieve", retrieve, deps))
+    builder.add_node("grade_documents", _timed("grade_documents", grade_documents, deps))
+    builder.add_node("rewrite_query", _timed("rewrite_query", rewrite_query, deps))
+    builder.add_node("generate", _timed("generate", generate, deps))
+    builder.add_node("self_check", _timed("self_check", self_check, deps))
 
     builder.add_edge(START, "retrieve")
     builder.add_edge("retrieve", "grade_documents")

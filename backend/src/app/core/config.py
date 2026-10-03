@@ -10,6 +10,7 @@ BACKEND_ROOT = SRC_DIR.parent
 REPO_ROOT = BACKEND_ROOT.parent
 DEFAULT_DOCS_DIR = REPO_ROOT / "docs"
 DEFAULT_STORAGE_DIR = BACKEND_ROOT / "storage" / "pages"
+DEFAULT_API_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
 
 _TRUE = {"1", "true", "yes", "on"}
 
@@ -120,9 +121,7 @@ class AppSettings:
     )
     llm_timeout: float = field(default_factory=lambda: env_float("LLM_TIMEOUT", 120.0))
     llm_max_retries: int = field(default_factory=lambda: env_int("LLM_MAX_RETRIES", 3))
-    llm_reasoning_effort: str = field(
-        default_factory=lambda: env_str("LLM_REASONING_EFFORT", "")
-    )
+    llm_reasoning_effort: str = field(default_factory=lambda: env_str("LLM_REASONING_EFFORT", ""))
     llm_image_max_edge: int = field(default_factory=lambda: env_int("LLM_IMAGE_MAX_EDGE", 768))
     llm_image_quality: int = field(default_factory=lambda: env_int("LLM_IMAGE_QUALITY", 70))
     llm_max_pages: int = field(default_factory=lambda: env_int("LLM_MAX_PAGES", 5))
@@ -137,7 +136,9 @@ class AppSettings:
     api_port: int = field(default_factory=lambda: env_int("API_PORT", 8000))
     api_cors_origins: tuple[str, ...] = field(
         default_factory=lambda: tuple(
-            item.strip() for item in env_str("API_CORS_ORIGINS", "").split(",") if item.strip()
+            item.strip()
+            for item in env_str("API_CORS_ORIGINS", DEFAULT_API_CORS_ORIGINS).split(",")
+            if item.strip()
         )
     )
 
