@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { queryClient } from '@/lib/queryClient'
 import { DEGRADED_HEALTH, OK_HEALTH, jsonResponse } from '@/test-utils/render'
-import type { ChatResponse, HealthResponse } from '@/types/api'
+import type { ChatResponse, ChatStageEvent, HealthResponse } from '@/types/api'
 import { DOCUMENT } from '@/lib/document'
 
 /** A real answer captured from the live backend during preflight. */
@@ -54,7 +54,7 @@ function renderPanel() {
 }
 
 /**
- * Stubs /health and /chat. `chatImpl` decides how the POST resolves so tests
+ * Stubs /health and /chat/stream. `chatImpl` decides how the POST resolves so tests
  * can hold a request open or reject it.
  */
 function stub(
@@ -67,14 +67,74 @@ function stub(
       if (health instanceof Error) throw health
       return jsonResponse(health)
     }
-    if (url.endsWith('/chat')) return chatImpl(init)
+    if (url.endsWith('/chat/stream')) return chatImpl(init)
     throw new Error(`unexpected fetch: ${url}`)
   })
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
 
-const okChat = (body: ChatResponse) => async () => jsonResponse(body)
+type StreamEvent = ChatStageEvent | { type: 'complete'; response: ChatResponse }
+
+function sseFrame(event: StreamEvent): Uint8Array {
+  const encoder = new TextEncoder()
+  const { type, ...payload } = event
+  return encoder.encode(`event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`)
+}
+
+function streamResponse(events: StreamEvent[]) {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const event of events) controller.enqueue(sseFrame(event))
+        controller.close()
+      },
+    }),
+    { headers: { 'Content-Type': 'text/event-stream' } },
+  )
+}
+
+function controlledStream() {
+  let controller: ReadableStreamDefaultController<Uint8Array> | null = null
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      start(nextController) {
+        controller = nextController
+      },
+    }),
+    { headers: { 'Content-Type': 'text/event-stream' } },
+  )
+  return {
+    response,
+    send(event: StreamEvent) {
+      controller?.enqueue(sseFrame(event))
+    },
+    close() {
+      controller?.close()
+    },
+  }
+}
+
+const stage = (event: Omit<ChatStageEvent, 'type'>): ChatStageEvent => ({ type: 'stage', ...event })
+
+const okChat = (body: ChatResponse) => async () =>
+  streamResponse([
+    stage({ stage: 'retrieve', status: 'running', message: 'Retrieving relevant pages', step: 0 }),
+    stage({
+      stage: 'retrieve',
+      status: 'complete',
+      message: 'Retrieved 3 relevant pages',
+      step: 1,
+      meta: { hits: 3, pages: [{ page_number: 102, score: 0.5 }] },
+    }),
+    stage({ stage: 'grade', status: 'running', message: 'Checking page relevance', step: 1 }),
+    stage({ stage: 'grade', status: 'complete', message: 'Pages passed the relevance check', step: 2 }),
+    stage({ stage: 'generate', status: 'running', message: 'Generating a grounded answer', step: 2 }),
+    stage({ stage: 'generate', status: 'complete', message: 'Answer drafted from 5 pages', step: 3 }),
+    stage({ stage: 'self_check', status: 'running', message: 'Verifying the answer against the pages', step: 3 }),
+    stage({ stage: 'self_check', status: 'complete', message: 'Answer verified against the source pages', step: 4 }),
+    { type: 'complete', response: body },
+  ])
 
 /** A /chat that never settles until its signal aborts, like the real fetch. */
 const hangChat = (init: RequestInit) =>
@@ -90,7 +150,7 @@ function panel() {
 
 function chatBodies(fetchMock: ReturnType<typeof vi.fn>) {
   return fetchMock.mock.calls
-    .filter(([url]) => String(url).endsWith('/chat'))
+    .filter(([url]) => String(url).endsWith('/chat/stream'))
     .map(([, init]) => JSON.parse((init as RequestInit).body as string))
 }
 
@@ -171,10 +231,10 @@ describe('sending a question', () => {
     expect(answer.getByText('€1,439,788 thousand')).toBeInTheDocument()
   })
 
-  it('shows a thinking state with a real clock and a cancel action while pending', async () => {
+  it('shows live pipeline stages with a real clock and a cancel action while pending', async () => {
     const user = userEvent.setup()
-    let release: (r: Response) => void = () => {}
-    stub(() => new Promise<Response>((resolve) => (release = resolve)))
+    const stream = controlledStream()
+    stub(async () => stream.response)
     renderPanel()
     await waitFor(() => expect(panel().getByText('gemini-2.5-flash')).toBeInTheDocument())
 
@@ -183,16 +243,15 @@ describe('sending a question', () => {
 
     const thinking = await screen.findByTestId('chat-thinking')
     expect(thinking).toBeInTheDocument()
-    expect(within(thinking).getByText('Running the retrieval pipeline')).toBeInTheDocument()
-    // The API has no streaming, so the copy must not claim stage progress.
-    // No streaming exists, so the panel must not render a stage-by-stage
-    // progress list built from the trace node names.
-    expect(thinking.querySelectorAll('ol li')).toHaveLength(0)
-    expect(thinking.querySelectorAll('[data-testid^="stage-"]')).toHaveLength(0)
-    expect(within(thinking).getByText(/run server-side/i)).toBeInTheDocument()
+    expect(within(thinking).getByText('Connecting to the retrieval pipeline')).toBeInTheDocument()
     expect(panel().getByRole('button', { name: /cancel/i })).toBeInTheDocument()
 
-    release(jsonResponse(REAL_ANSWER))
+    stream.send(stage({ stage: 'retrieve', status: 'complete', message: 'Retrieved 3 relevant pages', step: 1 }))
+    await waitFor(() => expect(screen.getByText('Retrieved 3 relevant pages')).toBeInTheDocument())
+    stream.send(stage({ stage: 'grade', status: 'running', message: 'Checking page relevance', step: 1 }))
+    await waitFor(() => expect(screen.getByText('Check relevance')).toBeInTheDocument())
+    stream.send({ type: 'complete', response: REAL_ANSWER })
+    stream.close()
     await waitFor(() => expect(screen.getByTestId('chat-answer')).toBeInTheDocument())
     expect(screen.queryByTestId('chat-thinking')).not.toBeInTheDocument()
   })

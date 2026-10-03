@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { api, ApiError } from '@/lib/api'
-import { nextExchangeId, type ChatTurn } from '@/lib/chat'
+import { nextExchangeId, type ChatProgress, type ChatTurn } from '@/lib/chat'
+import type { ChatStreamEvent } from '@/types/api'
 
 /**
  * In-memory transcript for the Self-RAG chat.
@@ -10,9 +11,8 @@ import { nextExchangeId, type ChatTurn } from '@/lib/chat'
  * or `clear()` discards everything, which matches the backend having no
  * session or history concept either.
  *
- * POST /chat blocks for the whole LangGraph run (19-34s measured) and the API
- * has no streaming, so exactly one request is in flight at a time and the
- * transcript cannot show partial tokens. A new send cancels the previous one.
+ * POST /chat/stream keeps one request in flight and reports each completed
+ * Self-RAG stage to the transcript. A new send cancels the previous one.
  */
 export interface UseChat {
   turns: ChatTurn[]
@@ -33,6 +33,7 @@ function userTurn(exchangeId: string, question: string): ChatTurn {
     elapsedMs: null,
     error: null,
     pending: true,
+    progress: [],
   }
 }
 
@@ -46,7 +47,35 @@ function assistantTurn(exchangeId: string, question: string): ChatTurn {
     elapsedMs: null,
     error: null,
     pending: true,
+    progress: [
+      {
+        id: `${exchangeId}:stage-0`,
+        stage: 'retrieve',
+        status: 'running',
+        message: 'Connecting to the retrieval pipeline',
+      },
+    ],
   }
+}
+
+function updateProgress(progress: ChatProgress[], event: ChatStreamEvent): ChatProgress[] {
+  if (event.type !== 'stage') return progress
+  const next = [...progress]
+  const index = [...next]
+    .map((item, i) => ({ item, i }))
+    .reverse()
+    .find(({ item }) => item.stage === event.stage && item.status === 'running')?.i
+
+  const item: ChatProgress = {
+    id: `${event.stage}-${event.step}`,
+    stage: event.stage,
+    status: event.status,
+    message: event.message,
+    meta: event.meta as Record<string, unknown> | undefined,
+  }
+  if (index == null) next.push(item)
+  else next[index] = { ...next[index], ...item, id: next[index].id }
+  return next
 }
 
 export function useChat(): UseChat {
@@ -85,7 +114,19 @@ export function useChat(): UseChat {
         setTurns((prev) => prev.map((t) => (t.id === u.id || t.id === a.id ? { ...t, ...patch } : t)))
 
       try {
-        const { data, elapsedMs } = await api.chat({ question: q }, ac.signal)
+        const { data, elapsedMs } = await api.streamChat(
+          { question: q },
+          (event) => {
+            if (event.type === 'stage') {
+              setTurns((prev) =>
+                prev.map((turn) =>
+                  turn.id === a.id ? { ...turn, progress: updateProgress(turn.progress, event) } : turn,
+                ),
+              )
+            }
+          },
+          ac.signal,
+        )
         settle({ pending: false, response: data, elapsedMs, error: null })
       } catch (err) {
         const apiErr =

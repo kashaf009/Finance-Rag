@@ -63,6 +63,38 @@ export interface ChatResponse {
   trace: Record<string, unknown>[]
 }
 
+export type ChatStage = 'retrieve' | 'grade' | 'rewrite_query' | 'generate' | 'self_check'
+
+export interface ChatStageEvent {
+  type: 'stage'
+  stage: ChatStage
+  status: 'running' | 'complete'
+  message: string
+  step: number
+  meta?: {
+    query?: string
+    hits?: number
+    pages?: { page_number: number; score: number }[]
+    chars?: number
+    relevant?: boolean
+    supported?: boolean
+  }
+}
+
+export interface ChatCompleteEvent {
+  type: 'complete'
+  response: ChatResponse
+}
+
+export interface ChatStreamErrorEvent {
+  type: 'error'
+  status: number
+  kind: 'not_configured' | 'pipeline'
+  detail: string
+}
+
+export type ChatStreamEvent = ChatStageEvent | ChatCompleteEvent | ChatStreamErrorEvent
+
 /** schemas.py:39 HealthResponse */
 export interface HealthResponse {
   status: 'ok' | 'degraded'

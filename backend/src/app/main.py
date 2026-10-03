@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.deps import get_store, reset_deps
 from app.api.routes import router
 from app.core.config import get_settings
@@ -10,6 +13,7 @@ from app.core.env import load_env
 from app.core.logging import get_logger, setup_logging
 
 logger = get_logger("main")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:

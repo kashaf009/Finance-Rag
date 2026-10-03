@@ -61,6 +61,66 @@ def test_graph_runs_happy_path_and_cites_pages() -> None:
     assert nodes == ["retrieve", "grade", "generate", "self_check"]
 
 
+def test_stream_reports_stage_updates_and_retrieval_metadata() -> None:
+    deps = _deps(
+        FakeLLM(["YES", "SUPPORTED"]),
+        FakeLLM(["Net income was 37.7 billion. [p12]"]),
+        [_page(12, 0.9)],
+    )
+    service = RagService(deps=deps, graph=build_graph(deps))
+
+    events = list(service.stream("What was net income?"))
+    completed = [event for event in events if event.get("status") == "complete"]
+
+    assert events[0] == {
+        "type": "stage",
+        "stage": "retrieve",
+        "status": "running",
+        "message": "Retrieving relevant pages",
+        "step": 0,
+    }
+    assert [event["stage"] for event in completed] == [
+        "retrieve",
+        "grade",
+        "generate",
+        "self_check",
+    ]
+    retrieve = completed[0]
+    assert retrieve["meta"] == {
+        "query": "What was net income?",
+        "hits": 1,
+        "pages": [{"page_number": 12, "score": 0.9}],
+    }
+    assert events[-1]["type"] == "complete"
+    assert events[-1]["response"].supported is True  # type: ignore[union-attr]
+
+
+def test_stream_reports_query_refinement_before_retrying_retrieval() -> None:
+    deps = _deps(
+        FakeLLM(["NO", "net income fiscal 2023", "YES", "SUPPORTED"]),
+        FakeLLM(["Net income was 37.7 billion. [p12]"]),
+        [_page(12, 0.8)],
+    )
+    service = RagService(deps=deps, graph=build_graph(deps))
+
+    completed = [
+        event
+        for event in service.stream("What was net income?")
+        if event.get("status") == "complete"
+    ]
+
+    assert [event["stage"] for event in completed] == [
+        "retrieve",
+        "grade",
+        "rewrite_query",
+        "retrieve",
+        "grade",
+        "generate",
+        "self_check",
+    ]
+    assert completed[2]["meta"] == {"query": "net income fiscal 2023"}
+
+
 def test_graph_rewrites_query_when_documents_graded_irrelevant() -> None:
     deps = _deps(
         FakeLLM(["NO", "net income fiscal 2023", "YES", "SUPPORTED"]),
@@ -146,8 +206,6 @@ def test_search_returns_citations_with_downscaled_images() -> None:
 
 
 def test_build_citations_filters_by_page_markers() -> None:
-    from app.rag.state import RetrievedPage
-
     pages: list[RetrievedPage] = [
         {
             "doc_id": DOC,
@@ -225,7 +283,10 @@ def test_build_citations_parses_grouped_page_markers() -> None:
 def test_build_citations_mixes_single_and_grouped_markers() -> None:
     pages = [_retrieved(5, 0.8), _retrieved(9, 0.7), _retrieved(11, 0.6), _retrieved(3, 0.9)]
     citations = build_citations(
-        "Interest margin [p5], then credit risk [p9, p11].", pages, max_pages=5, settings=get_settings()
+        "Interest margin [p5], then credit risk [p9, p11].",
+        pages,
+        max_pages=5,
+        settings=get_settings(),
     )
     assert [c.page_number for c in citations] == [5, 9, 11]
 

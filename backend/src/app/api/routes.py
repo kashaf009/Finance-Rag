@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from PIL import Image
 
 from app.api.deps import get_rag_service, get_settings_dep, get_store
@@ -27,7 +28,7 @@ from app.llm import (
     resolve_provider,
     set_active_provider,
 )
-from app.rag import RagError, RagService
+from app.rag import AnswerResult, RagError, RagService
 from app.vector import QdrantStore
 
 router = APIRouter(tags=["finance-rag"])
@@ -47,6 +48,25 @@ def _citations(citations: object) -> list[CitationModel]:
         )
         for item in citations  # type: ignore[union-attr]
     ]
+
+
+def _chat_response(result: AnswerResult) -> ChatResponse:
+    return ChatResponse(
+        question=result.question,
+        query=result.query,
+        answer=result.answer,
+        supported=result.supported,
+        rewrites=result.rewrites,
+        pages_considered=result.pages_considered,
+        citations=_citations(result.citations),
+        trace=result.trace,
+    )
+
+
+def _sse(event: dict[str, object]) -> str:
+    event_type = str(event.get("type") or "message")
+    payload = {key: value for key, value in event.items() if key != "type"}
+    return f"event: {event_type}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -138,15 +158,43 @@ def chat(payload: ChatRequest, service: ServiceDep) -> ChatResponse:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except RagError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return ChatResponse(
-        question=result.question,
-        query=result.query,
-        answer=result.answer,
-        supported=result.supported,
-        rewrites=result.rewrites,
-        pages_considered=result.pages_considered,
-        citations=_citations(result.citations),
-        trace=result.trace,
+    return _chat_response(result)
+
+
+@router.post("/chat/stream")
+def chat_stream(payload: ChatRequest, service: ServiceDep) -> StreamingResponse:
+    """Stream Self-RAG stage updates as server-sent events.
+
+    The final event carries the same response shape as POST /chat. Earlier
+    events only contain stage status and retrieval metadata, allowing clients to
+    show progress without waiting for answer generation and self-checking.
+    """
+
+    def events():
+        try:
+            for event in service.stream(payload.question, top_k=payload.top_k):
+                if event.get("type") == "complete":
+                    result = event.get("response")
+                    if not isinstance(result, AnswerResult):
+                        raise RagError("RAG stream ended without an answer")
+                    event = {"type": "complete", "response": _chat_response(result).model_dump()}
+                yield _sse(event)
+        except LLMConfigError as exc:
+            yield _sse(
+                {
+                    "type": "error",
+                    "status": 503,
+                    "kind": "not_configured",
+                    "detail": str(exc),
+                }
+            )
+        except RagError as exc:
+            yield _sse({"type": "error", "status": 502, "kind": "pipeline", "detail": str(exc)})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -227,14 +275,10 @@ def document_page(page_number: int, settings: SettingsDep) -> FileResponse:
     """
     doc_dir = _page_dir(settings)
     if doc_dir is None:
-        raise HTTPException(
-            status_code=404, detail="No rendered pages are available on disk."
-        )
+        raise HTTPException(status_code=404, detail="No rendered pages are available on disk.")
     path = _page_path(doc_dir, page_number)
     if path is None:
-        raise HTTPException(
-            status_code=404, detail=f"Page {page_number} is not available."
-        )
+        raise HTTPException(status_code=404, detail=f"Page {page_number} is not available.")
     return FileResponse(
         path,
         media_type="image/jpeg",
