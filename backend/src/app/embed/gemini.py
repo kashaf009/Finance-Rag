@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from typing import Any
 
 from PIL import Image
@@ -21,6 +22,7 @@ class GeminiEmbedder:
     def __init__(self, settings: AppSettings | None = None, client: Any | None = None) -> None:
         self._settings = settings or get_settings()
         self._client = client
+        self._cached_query = lru_cache(maxsize=256)(self._embed_query)
 
     @property
     def dim(self) -> int:
@@ -71,8 +73,16 @@ class GeminiEmbedder:
     def embed_image(self, image: Image.Image) -> list[float]:
         return self._embed_one(image, query=False)
 
+    def _embed_query(self, text: str) -> tuple[float, ...]:
+        return tuple(self._embed_one(text, query=True))
+
     def embed_text(self, text: str, *, query: bool = False) -> list[float]:
-        return self._embed_one(text, query=query)
+        if query:
+            normalized = " ".join(text.split())
+            # Keep immutable cached vectors scoped to this client's settings,
+            # and give each caller its own list to avoid cache corruption.
+            return list(self._cached_query(normalized))
+        return self._embed_one(text, query=False)
 
     def embed_images(self, images: Sequence[Image.Image]) -> list[list[float]]:
         items = list(images)
