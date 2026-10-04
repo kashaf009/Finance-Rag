@@ -63,6 +63,22 @@ Additionally key a module-level cache on `(doc_id, page_number, edge, quality)` 
 
 **Expected:** removes ~70% of per-request image CPU and the GIL pressure it causes.
 
+**Implementation status (2026-10-04): complete; backend checks passed.**
+
+- `RetrievedPage.prompt_data_uri` carries the prepared image through grading, generation, self-check, and citations. Retrieval prepares only the pages those consumers can use, even when `top_k` is larger.
+- Search and chat share a process-local LRU cache capped at 256 variants. Keys include document/page identity, edge, quality, JPEG optimization, and source content to prevent stale evidence after re-indexing.
+- Verification: `uv run pytest` — **152 passed**; `uv run ruff check .` and `uv run ruff format --check .` — passed. Regression coverage includes cold/repeat turns, both chat endpoints, shared search/citation reuse, overlapping rewrite retrievals, settings/content changes, and eviction.
+
+Offline benchmark: fixed 20-case set (10 supported, 5 refusals, 5 two-rewrite cases), each run cold and repeated, using five synthetic 1024×1408 financial-table images and deterministic embedder/store/LLM fakes. The benchmark uses the real Pillow encoder and full LangGraph; per-node timings and total wall time were captured before and after.
+
+| Scenario | Before encodes | After cold encodes | After repeat encodes | Before cold median | After cold median | After repeat median |
+| --- | --- | --- | --- | --- | --- | --- |
+| Supported | 17 | 5 | 0 | 173.284 ms | 53.443 ms | 0.618 ms |
+| Refusal | 7 | 5 | 0 | 72.144 ms | 52.999 ms | 0.586 ms |
+| Two rewrites, same retrieved pages | 21 | 5 | 0 | 210.247 ms | 53.869 ms | 1.144 ms |
+
+These are local image-processing/pipeline measurements. Live end-to-end verification is pending: the local API and Qdrant were offline when this feature was built.
+
 ### 0.2 Remove wasted work inside each encode
 
 `backend/src/app/imaging/encode.py`:

@@ -10,10 +10,12 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import get_rag_service, get_store
 from app.core.config import get_settings, reset_settings
+from app.imaging.encode import image_to_base64
 from app.main import create_app
-from app.rag import AnswerResult, Citation, RagError
+from app.rag import AnswerResult, Citation, RagError, RagService
+from app.rag.nodes import RagDeps
 from tests.conftest import _page
-from tests.fakes import FakeHit, FakeStore
+from tests.fakes import FakeEmbedder, FakeHit, FakeLLM, FakeStore
 
 
 class StubService:
@@ -321,6 +323,57 @@ def test_chat_stream_emits_stage_and_complete_sse_events(
         ],
         "trace": [{"node": "retrieve"}],
     }
+
+
+@pytest.mark.parametrize("endpoint", ["/chat", "/chat/stream"])
+def test_prepared_prompt_images_preserve_the_chat_api_contract(
+    client: TestClient, endpoint: str
+) -> None:
+    service = RagService(
+        deps=RagDeps(
+            settings=get_settings(),
+            embedder=FakeEmbedder(),
+            store=FakeStore(
+                [
+                    FakeHit(
+                        0.9,
+                        {
+                            "doc_id": "doc",
+                            "page_number": 12,
+                            "image_base64": image_to_base64(_page((120, 165), "page 12")),
+                            "width": 120,
+                            "height": 165,
+                            "source": "doc.pdf",
+                        },
+                    )
+                ]
+            ),
+            answer_llm=FakeLLM(["Net income was 37.7 billion. [p12]"]),
+            utility_llm=FakeLLM(["YES", "SUPPORTED"]),
+        )
+    )
+    client.app.dependency_overrides[get_rag_service] = lambda: service
+    response = client.post(endpoint, json={"question": "What was net income?"})
+    assert response.status_code == 200
+    body = (
+        _sse_frames(response.text)[-1][1]["response"]
+        if endpoint.endswith("/stream")
+        else response.json()
+    )
+    assert set(body) == {
+        "question",
+        "query",
+        "answer",
+        "supported",
+        "rewrites",
+        "pages_considered",
+        "citations",
+        "trace",
+    }
+    assert body["supported"] is True
+    assert set(body["citations"][0]) == {"doc_id", "page_number", "score", "image"}
+    assert body["citations"][0]["image"].startswith("data:image/jpeg;base64,")
+    assert "prompt_data_uri" not in response.text
 
 
 def test_chat_stream_emits_pipeline_errors_as_sse(client: TestClient) -> None:

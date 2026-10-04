@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 
 class RetrievedPage(TypedDict):
@@ -8,6 +8,7 @@ class RetrievedPage(TypedDict):
     page_number: int
     score: float
     image_base64: str
+    prompt_data_uri: NotRequired[str]
     width: int
     height: int
     source: str
