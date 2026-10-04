@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import dataclasses
 from typing import Any
+from unittest.mock import patch
 
+import pytest
 from PIL import Image
 
 from app.core.config import get_settings
 from app.imaging.encode import image_to_base64
 from app.llm import NOT_FOUND_ANSWER
-from app.rag import RagService, build_citations, build_graph
+from app.llm import images as prompt_images
+from app.rag import AnswerResult, RagService, build_citations, build_graph
 from app.rag.nodes import RagDeps
 from app.rag.state import RetrievedPage
 from tests.fakes import FakeEmbedder, FakeHit, FakeLLM, FakeStore
@@ -59,6 +62,87 @@ def test_graph_runs_happy_path_and_cites_pages() -> None:
     assert result.rewrites == 0
     nodes = [step["node"] for step in result.trace]
     assert nodes == ["retrieve", "grade", "generate", "self_check"]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_prompt_images_are_encoded_once_and_reused_across_turns(streaming: bool) -> None:
+    utility = FakeLLM(["YES", "SUPPORTED"] * 2)
+    answer = FakeLLM(["Financial results [p1, p2, p3, p4, p5]."] * 2)
+    deps = _deps(utility, answer, [_page(number, 0.9) for number in range(1, 9)])
+    service = RagService(deps=deps)
+
+    def run() -> AnswerResult:
+        if streaming:
+            response = list(service.stream("What were the financial results?", top_k=8))[-1][
+                "response"
+            ]
+            assert isinstance(response, AnswerResult)
+            return response
+        return service.answer("What were the financial results?", top_k=8)
+
+    with patch.object(
+        prompt_images, "image_to_jpeg_bytes", wraps=prompt_images.image_to_jpeg_bytes
+    ) as encode:
+        first = run()
+        assert encode.call_count == 5
+        repeated = run()
+        assert encode.call_count == 5
+
+    assert first.supported is repeated.supported is True
+    assert first.pages_considered == repeated.pages_considered == 8
+    assert first.citations == repeated.citations
+    urls = [citation.image for citation in first.citations]
+    for calls, expected in (
+        (answer.calls, urls),
+        (utility.calls[::2], urls[:2]),
+        (utility.calls[1::2], urls),
+    ):
+        for call in calls:
+            blocks = call[1].content
+            assert [
+                block["image_url"]["url"] for block in blocks if block["type"] == "image_url"
+            ] == expected
+
+
+def test_search_and_unprepared_citations_share_the_chat_image_cache() -> None:
+    deps = _deps(
+        FakeLLM(["YES", "SUPPORTED"]),
+        FakeLLM(["Financial results [p1, p2, p3, p4, p5]."]),
+        [_page(number, 0.9) for number in range(1, 6)],
+    )
+    service = RagService(deps=deps)
+    pages = [RetrievedPage(**hit.payload, score=hit.score) for hit in deps.store.pages]
+    with patch.object(
+        prompt_images, "image_to_jpeg_bytes", wraps=prompt_images.image_to_jpeg_bytes
+    ) as encode:
+        hits = service.search("financial results")
+        assert encode.call_count == 5
+        result = service.answer("What were the financial results?")
+        citations = build_citations(
+            result.answer,
+            pages,
+            max_pages=5,
+            settings=deps.settings,
+        )
+        assert encode.call_count == 5
+        assert service.search("financial results") == hits
+        assert encode.call_count == 5
+    assert result.citations == citations == hits
+
+
+def test_query_rewrites_reuse_images_for_overlapping_retrievals() -> None:
+    deps = _deps(
+        FakeLLM(["NO", "broader query", "NO", "another query", "YES", "SUPPORTED"]),
+        FakeLLM(["Financial results [p1, p2, p3, p4, p5]."]),
+        [_page(number, 0.9) for number in range(1, 6)],
+    )
+    with patch.object(
+        prompt_images, "image_to_jpeg_bytes", wraps=prompt_images.image_to_jpeg_bytes
+    ) as encode:
+        result = RagService(deps=deps).answer("What were the financial results?")
+    assert result.supported is True
+    assert result.rewrites == 2
+    assert encode.call_count == 5
 
 
 def test_stream_reports_stage_updates_and_retrieval_metadata() -> None:

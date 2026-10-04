@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
+from unittest.mock import patch
 
 import pytest
 from PIL import Image
@@ -16,11 +18,13 @@ from app.llm import (
     is_refusal,
     provider_names,
     reset_llm_cache,
+    reset_prompt_image_cache,
     resolve_provider,
     set_active_provider,
     text_of,
     to_prompt_data_uri,
 )
+from app.llm import images as prompt_images
 from app.llm.prompts import answer_prompt
 from tests.fakes import FakeLLM
 
@@ -48,6 +52,82 @@ def test_prompt_image_does_not_upscale_small_images() -> None:
     uri = to_prompt_data_uri(_encoded((120, 90)))
     image = base64_to_image(uri)
     assert image.size == (120, 90)
+
+
+def test_prompt_image_cache_reuses_equivalent_encoding_settings() -> None:
+    encoded = _encoded()
+    settings = get_settings()
+    with patch.object(
+        prompt_images, "image_to_jpeg_bytes", wraps=prompt_images.image_to_jpeg_bytes
+    ) as encode:
+        first = to_prompt_data_uri(encoded, doc_id="doc", page_number=1, settings=settings)
+        repeated = to_prompt_data_uri(
+            encoded,
+            doc_id="doc",
+            page_number=1,
+            max_edge=settings.llm_image_max_edge,
+            quality=settings.llm_image_quality,
+            settings=dataclasses.replace(settings, log_level="DEBUG"),
+        )
+    assert repeated == first
+    assert encode.call_count == 1
+
+
+@pytest.mark.parametrize("change", ["document", "page", "edge", "quality", "optimize", "content"])
+def test_prompt_image_cache_keeps_distinct_page_variants_fresh(change: str) -> None:
+    encoded = _encoded()
+    settings = get_settings()
+    kwargs = {"doc_id": "doc", "page_number": 1, "settings": settings}
+    changed = dict(kwargs)
+    if change == "document":
+        changed["doc_id"] = "another-doc"
+    elif change == "page":
+        changed["page_number"] = 2
+    elif change == "edge":
+        changed["max_edge"] = 256
+    elif change == "quality":
+        changed["quality"] = 40
+    elif change == "optimize":
+        changed["settings"] = dataclasses.replace(
+            settings, jpeg_optimize=not settings.jpeg_optimize
+        )
+    new_encoded = (
+        image_to_base64(Image.new("RGB", (1024, 1408), "red")) if change == "content" else encoded
+    )
+    with patch.object(
+        prompt_images, "image_to_jpeg_bytes", wraps=prompt_images.image_to_jpeg_bytes
+    ) as encode:
+        to_prompt_data_uri(encoded, **kwargs)
+        updated = to_prompt_data_uri(new_encoded, **changed)
+        assert to_prompt_data_uri(new_encoded, **changed) == updated
+        assert encode.call_count == 2
+    uncached_kwargs = {k: v for k, v in changed.items() if k not in {"doc_id", "page_number"}}
+    assert updated == to_prompt_data_uri(new_encoded, **uncached_kwargs)
+
+
+def test_prompt_image_cache_evicts_old_pages() -> None:
+    encoded = _encoded((120, 90))
+    with patch.object(
+        prompt_images, "image_to_jpeg_bytes", wraps=prompt_images.image_to_jpeg_bytes
+    ) as encode:
+        first = to_prompt_data_uri(encoded, doc_id="doc", page_number=1)
+        for number in range(2, 258):
+            to_prompt_data_uri(encoded, doc_id="doc", page_number=number)
+        assert to_prompt_data_uri(encoded, doc_id="doc", page_number=257) == first
+        assert encode.call_count == 257
+        assert to_prompt_data_uri(encoded, doc_id="doc", page_number=1) == first
+        assert encode.call_count == 258
+
+
+def test_prompt_image_cache_can_be_cleared() -> None:
+    encoded = _encoded((120, 90))
+    with patch.object(
+        prompt_images, "image_to_jpeg_bytes", wraps=prompt_images.image_to_jpeg_bytes
+    ) as encode:
+        first = to_prompt_data_uri(encoded, doc_id="doc", page_number=1)
+        reset_prompt_image_cache()
+        assert to_prompt_data_uri(encoded, doc_id="doc", page_number=1) == first
+        assert encode.call_count == 2
 
 
 def test_text_of_handles_strings_and_messages() -> None:

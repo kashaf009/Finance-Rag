@@ -16,7 +16,7 @@ from app.llm.client import (
     set_active_provider,
     text_of,
 )
-from app.llm.images import to_prompt_data_uri
+from app.llm.images import reset_prompt_image_cache, to_prompt_data_uri
 from app.llm.prompts import NOT_FOUND_ANSWER, is_refusal
 
 __all__ = [
@@ -33,6 +33,7 @@ __all__ = [
     "is_refusal",
     "provider_names",
     "reset_llm_cache",
+    "reset_prompt_image_cache",
     "resolve_provider",
     "set_active_provider",
     "text_of",

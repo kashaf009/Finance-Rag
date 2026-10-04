@@ -123,7 +123,13 @@ def build_citations(
             doc_id=page["doc_id"],
             page_number=page["page_number"],
             score=page["score"],
-            image=to_prompt_data_uri(page["image_base64"], settings=settings),
+            image=page.get("prompt_data_uri")
+            or to_prompt_data_uri(
+                page["image_base64"],
+                doc_id=page["doc_id"],
+                page_number=page["page_number"],
+                settings=settings,
+            ),
         )
         for page in selected
     ]
@@ -149,17 +155,25 @@ class RagService:
         cfg = self._deps.settings
         vector = self._deps.embedder.embed_text(query, query=True)
         hits = self._deps.store.search(vector, limit=limit or cfg.rag_top_k)
-        return [
-            Citation(
-                doc_id=str((hit.payload or {}).get("doc_id") or ""),
-                page_number=int((hit.payload or {}).get("page_number") or 0),
-                score=float(hit.score),
-                image=to_prompt_data_uri(
-                    str((hit.payload or {}).get("image_base64") or ""), settings=cfg
-                ),
+        citations: list[Citation] = []
+        for hit in hits:
+            payload = hit.payload or {}
+            doc_id = str(payload.get("doc_id") or "")
+            page_number = int(payload.get("page_number") or 0)
+            citations.append(
+                Citation(
+                    doc_id=doc_id,
+                    page_number=page_number,
+                    score=float(hit.score),
+                    image=to_prompt_data_uri(
+                        str(payload.get("image_base64") or ""),
+                        doc_id=doc_id,
+                        page_number=page_number,
+                        settings=cfg,
+                    ),
+                )
             )
-            for hit in hits
-        ]
+        return citations
 
     def answer(self, question: str, top_k: int | None = None) -> AnswerResult:
         final: RAGState = self._graph.invoke(self._initial_state(question, top_k))

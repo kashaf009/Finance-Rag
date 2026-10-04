@@ -85,6 +85,10 @@ curl http://127.0.0.1:8000/health
 
 Pure vector retrieval, no generation. Each hit carries a JPEG data URI, downscaled at serve time to `llm_image_max_edge` (559x768 for this document). The Qdrant payload itself holds the full-resolution 1024x1408 file.
 
+Search and chat share a process-local LRU cache of up to 256 prompt-image variants.
+The cache keys include document/page identity, source image content, and encoding
+settings, so re-indexed pages and changed image settings produce fresh images.
+
 ```bash
 curl -X POST http://127.0.0.1:8000/search \
   -H 'Content-Type: application/json' \
@@ -129,7 +133,8 @@ START -> retrieve -> grade_documents
                                               (up to RAG_MAX_REWRITES, then generate)
 ```
 
-- **retrieve** embeds the query and searches Qdrant.
+- **retrieve** embeds the query, searches Qdrant, and prepares the prompt images needed
+  downstream. Grading, generation, self-check, and citations reuse those same data URIs.
 - **grade_documents** scores pages; a low top score short-circuits the grader LLM call.
 - **rewrite_query** broadens the query and re-retrieves when grading fails.
 - **generate** answers from the attached page images, citing inline `[pN]` markers.

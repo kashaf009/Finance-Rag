@@ -66,6 +66,12 @@ def _trace(state: RAGState, node: str, **data: object) -> list[dict[str, object]
 def _image_blocks(pages: list[RetrievedPage], settings: AppSettings) -> list[dict[str, object]]:
     blocks: list[dict[str, object]] = []
     for page in pages:
+        uri = page.get("prompt_data_uri") or to_prompt_data_uri(
+            page["image_base64"],
+            doc_id=page["doc_id"],
+            page_number=page["page_number"],
+            settings=settings,
+        )
         blocks.append(
             {
                 "type": "text",
@@ -78,7 +84,7 @@ def _image_blocks(pages: list[RetrievedPage], settings: AppSettings) -> list[dic
         blocks.append(
             {
                 "type": "image_url",
-                "image_url": {"url": to_prompt_data_uri(page["image_base64"], settings=settings)},
+                "image_url": {"url": uri},
             }
         )
     return blocks
@@ -103,6 +109,15 @@ def retrieve(state: RAGState, deps: RagDeps) -> RAGState:
     vector = deps.embedder.embed_text(query, query=True)
     hits = deps.store.search(vector, limit=limit)
     pages = [_page_fields(hit) for hit in hits]
+    # Prepare only pages that a downstream LLM can use; a larger top_k should
+    # not encode images that will never appear in a prompt or citation.
+    for page in pages[: max(MAX_GRADER_PAGES, deps.settings.llm_max_pages)]:
+        page["prompt_data_uri"] = to_prompt_data_uri(
+            page["image_base64"],
+            doc_id=page["doc_id"],
+            page_number=page["page_number"],
+            settings=deps.settings,
+        )
     return {
         **state,
         "query": query,
