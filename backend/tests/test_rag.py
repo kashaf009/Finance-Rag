@@ -8,13 +8,14 @@ import pytest
 from PIL import Image
 
 from app.core.config import get_settings
+from app.embed import GeminiEmbedder
 from app.imaging.encode import image_to_base64
 from app.llm import NOT_FOUND_ANSWER
 from app.llm import images as prompt_images
 from app.rag import AnswerResult, RagService, build_citations, build_graph
 from app.rag.nodes import RagDeps
 from app.rag.state import RetrievedPage
-from tests.fakes import FakeEmbedder, FakeHit, FakeLLM, FakeStore
+from tests.fakes import FakeClient, FakeEmbedder, FakeHit, FakeLLM, FakeModels, FakeStore
 
 DOC = "JPM_SE_Annual_2023_140"
 
@@ -143,6 +144,49 @@ def test_query_rewrites_reuse_images_for_overlapping_retrievals() -> None:
     assert result.supported is True
     assert result.rewrites == 2
     assert encode.call_count == 5
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("rewrites", [0, 2])
+def test_repeated_chat_and_search_reuse_query_embeddings(streaming: bool, rewrites: int) -> None:
+    question = "What was net income?"
+    repeated_question = "  What\twas net\nincome?  "
+    rewrite_queries = ["net income fiscal 2023", "annual financial results"] if rewrites else []
+    utility_replies = (
+        ["NO", rewrite_queries[0], "NO", rewrite_queries[1], "YES", "SUPPORTED"]
+        if rewrites
+        else ["YES", "SUPPORTED"]
+    )
+    deps = _deps(
+        FakeLLM(utility_replies * 2),
+        FakeLLM(["Net income was 37.7 billion. [p12]"] * 2),
+        [_page(12, 0.9)],
+        embed_dim=4,
+    )
+    models = FakeModels(dim=4)
+    deps = dataclasses.replace(deps, embedder=GeminiEmbedder(deps.settings, FakeClient(models)))
+    service = RagService(deps=deps)
+
+    def run(text: str) -> AnswerResult:
+        if streaming:
+            response = list(service.stream(text))[-1]["response"]
+            assert isinstance(response, AnswerResult)
+            return response
+        return service.answer(text)
+
+    first = run(question)
+    assert [call["contents"] for call in models.calls] == [question, *rewrite_queries]
+    repeated = run(repeated_question)
+    hits = service.search(question, limit=1)
+    assert len(models.calls) == 1 + rewrites
+    assert first.supported is repeated.supported is True
+    assert first.answer == repeated.answer
+    assert first.rewrites == repeated.rewrites == rewrites
+    assert first.citations == repeated.citations == hits
+    assert repeated.question == repeated_question
+    assert repeated.query == (rewrite_queries[-1] if rewrites else repeated_question)
+    # Only embeddings are cached: every retrieval/search still consults the store.
+    assert len(deps.store.queries) == (1 + rewrites) * 2 + 1
 
 
 def test_stream_reports_stage_updates_and_retrieval_metadata() -> None:

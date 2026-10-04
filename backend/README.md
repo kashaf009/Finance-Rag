@@ -93,6 +93,11 @@ Prompt JPEGs use fast encoding (`optimize=False`) at `LLM_IMAGE_QUALITY`. This
 reduces encoding CPU while preserving decoded pixels, with a larger JPEG payload.
 `IMAGE_JPEG_OPTIMIZE` controls JPEG optimization for ingest artifacts.
 
+Each Gemini embedder caches successful query embeddings in a 256-entry LRU.
+Queries are whitespace-normalized while preserving case and punctuation. Chat,
+search, and query rewrites reuse embeddings across requests handled by that
+embedder instance.
+
 ```bash
 curl -X POST http://127.0.0.1:8000/search \
   -H 'Content-Type: application/json' \

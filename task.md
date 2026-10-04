@@ -108,6 +108,23 @@ JPEG encoding time fell by about **55%**, while supported-case local pipeline ti
 
 Re-asking a question after a poor answer is a core flow in this UI, and each rewrite loop iteration embeds a fresh query that will not hit the cache — but the initial question and every repeat will.
 
+**Implementation status (2026-10-04): complete; backend checks passed.**
+
+- Each `GeminiEmbedder` owns a 256-entry LRU for successful `query=True` text embeddings. Instance scoping isolates clients, models, dimensions, and task settings.
+- Query keys trim and collapse whitespace while preserving case, punctuation, and numbers. Original question/query fields continue to flow through the RAG response and trace.
+- Cached vectors are immutable tuples; callers receive fresh lists. Exhausted retries raise normally, and a later successful request can populate the cache.
+- Verification: `uv run pytest` — **174 passed**; `uv run ruff check .` and `uv run ruff format --check .` — passed. Regression coverage includes normalization, query/document task separation, vector mutation, client/settings isolation, LRU recency/eviction, failed-request recovery, and chat/search reuse through both blocking and streaming graph execution.
+
+Offline comparison uses the same fixed 20-case set, each run cold and repeated, with the real `GeminiEmbedder` backed by deterministic `FakeClient`/`FakeModels`. SDK imports were warmed independently before measurement. Per-node and total timings were captured alongside embedding call counts:
+
+| Scenario | Before cold calls | After cold calls | Before repeat calls | After repeat calls | Before repeat median | After repeat median |
+| --- | --- | --- | --- | --- | --- | --- |
+| Supported | 1 | 1 | 1 | 0 | 0.601 ms | 0.588 ms |
+| Refusal | 1 | 1 | 1 | 0 | 0.581 ms | 0.564 ms |
+| Two distinct rewrites | 3 | 3 | 3 | 0 | 1.135 ms | 1.109 ms |
+
+Across 40 chat turns, embedding calls fell from **60 to 30**. Repeated questions and their repeated rewrite queries incur zero embedding calls while cached. Every retrieval/search still queries the vector store, verified in integration tests. The fake provider has no network latency; live latency savings remain pending measurement.
+
 ### 0.4 Wire up the dead `LLM_MAX_RETRIES`
 
 `cfg.llm_max_retries` appears in the client cache key (`llm/client.py:153`) but is **never passed to `ChatOpenAI`** (`client.py:185-193`). The OpenAI SDK default of `max_retries=2` silently applies, so a slow or failing call can be retried three times at up to `LLM_TIMEOUT=120 s` each — **360 s worst case**, invisible in configuration.
