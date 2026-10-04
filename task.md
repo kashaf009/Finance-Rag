@@ -4,6 +4,16 @@
 
 Reduce end-to-end latency and perceived latency of a chat turn in the Finance RAG app.
 
+## Progress (2026-10-04)
+
+| Task | Status | Commit |
+| --- | --- | --- |
+| 0.1 Cache the downscaled data URI per page | **DONE** | `b0db38e` |
+| 0.2 Remove wasted work inside each encode | **DONE** | `21d6321` |
+| 0.3 LRU-cache query embeddings | **DONE** | `296f07f` |
+
+Latest automated verification: **174 backend tests passed**, with Ruff lint and formatting checks passed. All three feature commits have been pushed. Work paused after feature 0.3 at the user's request.
+
 ## Scope decisions (settled)
 
 | Decision | Choice | Rationale |
@@ -44,7 +54,7 @@ Measured on the current stack (`frontend/src/lib/api.ts:23-31`): **19.5 s** for 
 
 No behaviour change. Safe to ship first and independently.
 
-### 0.1 Cache the downscaled data URI per page — biggest safe win
+### 0.1 [DONE] Cache the downscaled data URI per page — biggest safe win
 
 `backend/src/app/llm/images.py:9` is a pure function with no memoization, and is called up to **seventeen times per request**:
 
@@ -63,7 +73,7 @@ Additionally key a module-level cache on `(doc_id, page_number, edge, quality)` 
 
 **Expected:** removes ~70% of per-request image CPU and the GIL pressure it causes.
 
-**Implementation status (2026-10-04): complete; backend checks passed.**
+**Implementation status (2026-10-04): DONE; backend checks passed.**
 
 - `RetrievedPage.prompt_data_uri` carries the prepared image through grading, generation, self-check, and citations. Retrieval prepares only the pages those consumers can use, even when `top_k` is larger.
 - Search and chat share a process-local LRU cache capped at 256 variants. Keys include document/page identity, edge, quality, and source content to prevent stale evidence after re-indexing. Prompt JPEG optimization is fixed to `False` by feature 0.2.
@@ -79,14 +89,14 @@ Offline benchmark: fixed 20-case set (10 supported, 5 refusals, 5 two-rewrite ca
 
 These are local image-processing/pipeline measurements. Live end-to-end verification is pending: the local API and Qdrant were offline when this feature was built.
 
-### 0.2 Remove wasted work inside each encode
+### 0.2 [DONE] Remove wasted work inside each encode
 
 `backend/src/app/imaging/encode.py`:
 
 - **Double colour conversion.** `base64_to_image` already returns `.convert("RGB")` (`encode.py:59`), then `image_to_jpeg_bytes` calls `.convert("RGB")` again (`encode.py:23`). Drop the redundant one.
 - **JPEG optimization trades CPU for bytes.** `cfg.jpeg_optimize` defaults to `true`, and `optimize=True` adds encode CPU to reduce JPEG size. Pass `optimize=False` **from `to_prompt_data_uri` only** — these images go to an LLM, not to disk. Lower encode CPU with a larger upload; measure both. Do not change the ingest path.
 
-**Implementation status (2026-10-04): complete; backend checks passed.**
+**Implementation status (2026-10-04): DONE; backend checks passed.**
 
 - The JPEG encoder saves RGB images directly and converts other modes to RGB when needed. Tests compare the resulting ingest bytes against the previous encoder for RGB, RGBA, grayscale, palette, and CMYK inputs, with JPEG optimization both enabled and disabled.
 - Prompt encoding always passes `optimize=False`. The prompt cache now uses only effective prompt-encoding settings, so changing the ingest optimization setting does not force a prompt-image re-encode.
@@ -102,13 +112,13 @@ Offline comparison against feature 0.1, using the same fixed 20-case set and syn
 
 JPEG encoding time fell by about **55%**, while supported-case local pipeline time fell by about **6%**. The five-image JPEG payload grew from **257,952 to 308,932 bytes** (**19.8%**); the corresponding data URIs grew from **344,055 to 412,027 bytes**. Cold requests still encode five images and repeats encode zero. These measurements use deterministic external-service fakes; live end-to-end verification remains pending.
 
-### 0.3 LRU-cache query embeddings
+### 0.3 [DONE] LRU-cache query embeddings
 
 `backend/src/app/embed/gemini.py:74` calls `embed_content` on every `retrieve` — roughly 100–300 ms of pure network wait, repeated verbatim for a repeated question. Wrap `embed_text` in a cache keyed on the normalized query string (`lru_cache`, `maxsize=256`).
 
 Re-asking a question after a poor answer is a core flow in this UI, and each rewrite loop iteration embeds a fresh query that will not hit the cache — but the initial question and every repeat will.
 
-**Implementation status (2026-10-04): complete; backend checks passed.**
+**Implementation status (2026-10-04): DONE; backend checks passed.**
 
 - Each `GeminiEmbedder` owns a 256-entry LRU for successful `query=True` text embeddings. Instance scoping isolates clients, models, dimensions, and task settings.
 - Query keys trim and collapse whitespace while preserving case, punctuation, and numbers. Original question/query fields continue to flow through the RAG response and trace.
@@ -124,6 +134,9 @@ Offline comparison uses the same fixed 20-case set, each run cold and repeated, 
 | Two distinct rewrites | 3 | 3 | 3 | 0 | 1.135 ms | 1.109 ms |
 
 Across 40 chat turns, embedding calls fell from **60 to 30**. Repeated questions and their repeated rewrite queries incur zero embedding calls while cached. Every retrieval/search still queries the vector store, verified in integration tests. The fake provider has no network latency; live latency savings remain pending measurement.
+
+
+## Pending :
 
 ### 0.4 Wire up the dead `LLM_MAX_RETRIES`
 
