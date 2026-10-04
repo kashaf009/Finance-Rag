@@ -20,7 +20,9 @@ def image_to_jpeg_bytes(
 ) -> bytes:
     cfg = settings or get_settings()
     buffer = BytesIO()
-    image.convert("RGB").save(
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+    image.save(
         buffer,
         format="JPEG",
         quality=cfg.jpeg_quality if quality is None else quality,

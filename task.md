@@ -66,7 +66,7 @@ Additionally key a module-level cache on `(doc_id, page_number, edge, quality)` 
 **Implementation status (2026-10-04): complete; backend checks passed.**
 
 - `RetrievedPage.prompt_data_uri` carries the prepared image through grading, generation, self-check, and citations. Retrieval prepares only the pages those consumers can use, even when `top_k` is larger.
-- Search and chat share a process-local LRU cache capped at 256 variants. Keys include document/page identity, edge, quality, JPEG optimization, and source content to prevent stale evidence after re-indexing.
+- Search and chat share a process-local LRU cache capped at 256 variants. Keys include document/page identity, edge, quality, and source content to prevent stale evidence after re-indexing. Prompt JPEG optimization is fixed to `False` by feature 0.2.
 - Verification: `uv run pytest` — **152 passed**; `uv run ruff check .` and `uv run ruff format --check .` — passed. Regression coverage includes cold/repeat turns, both chat endpoints, shared search/citation reuse, overlapping rewrite retrievals, settings/content changes, and eviction.
 
 Offline benchmark: fixed 20-case set (10 supported, 5 refusals, 5 two-rewrite cases), each run cold and repeated, using five synthetic 1024×1408 financial-table images and deterministic embedder/store/LLM fakes. The benchmark uses the real Pillow encoder and full LangGraph; per-node timings and total wall time were captured before and after.
@@ -84,7 +84,23 @@ These are local image-processing/pipeline measurements. Live end-to-end verifica
 `backend/src/app/imaging/encode.py`:
 
 - **Double colour conversion.** `base64_to_image` already returns `.convert("RGB")` (`encode.py:59`), then `image_to_jpeg_bytes` calls `.convert("RGB")` again (`encode.py:23`). Drop the redundant one.
-- **`optimize=True` is the wrong trade here.** `cfg.jpeg_optimize` defaults to `true`, and `optimize=True` costs several times the encode CPU for a few percent of bytes. Pass `optimize=False` **from `to_prompt_data_uri` only** — these images go to an LLM, not to disk. Lower CPU *and* smaller upload. Do not change the ingest path.
+- **JPEG optimization trades CPU for bytes.** `cfg.jpeg_optimize` defaults to `true`, and `optimize=True` adds encode CPU to reduce JPEG size. Pass `optimize=False` **from `to_prompt_data_uri` only** — these images go to an LLM, not to disk. Lower encode CPU with a larger upload; measure both. Do not change the ingest path.
+
+**Implementation status (2026-10-04): complete; backend checks passed.**
+
+- The JPEG encoder saves RGB images directly and converts other modes to RGB when needed. Tests compare the resulting ingest bytes against the previous encoder for RGB, RGBA, grayscale, palette, and CMYK inputs, with JPEG optimization both enabled and disabled.
+- Prompt encoding always passes `optimize=False`. The prompt cache now uses only effective prompt-encoding settings, so changing the ingest optimization setting does not force a prompt-image re-encode.
+- Verification: `uv run pytest` — **163 passed**; `uv run ruff check .` and `uv run ruff format --check .` — passed. Tests also verify decoded prompt pixels, redundant-conversion avoidance, and cold/repeat cache behavior.
+
+Offline comparison against feature 0.1, using the same fixed 20-case set and synthetic page images described above:
+
+| Scenario | Before JPEG encode median | After JPEG encode median | Before cold total median | After cold total median |
+| --- | --- | --- | --- | --- |
+| Supported | 6.633 ms | 2.974 ms | 50.618 ms | 47.626 ms |
+| Refusal | 6.432 ms | 2.929 ms | 50.350 ms | 47.517 ms |
+| Two rewrites, same retrieved pages | 6.618 ms | 2.936 ms | 51.409 ms | 48.175 ms |
+
+JPEG encoding time fell by about **55%**, while supported-case local pipeline time fell by about **6%**. The five-image JPEG payload grew from **257,952 to 308,932 bytes** (**19.8%**); the corresponding data URIs grew from **344,055 to 412,027 bytes**. Cold requests still encode five images and repeats encode zero. These measurements use deterministic external-service fakes; live end-to-end verification remains pending.
 
 ### 0.3 LRU-cache query embeddings
 

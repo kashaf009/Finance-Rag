@@ -8,7 +8,12 @@ import pytest
 from PIL import Image
 
 from app.core.config import get_settings, reset_settings
-from app.imaging.encode import base64_to_image, image_to_base64
+from app.imaging.encode import (
+    base64_to_image,
+    bytes_to_base64,
+    image_to_base64,
+    image_to_jpeg_bytes,
+)
 from app.llm import (
     ANSWER,
     NOT_FOUND_ANSWER,
@@ -54,6 +59,18 @@ def test_prompt_image_does_not_upscale_small_images() -> None:
     assert image.size == (120, 90)
 
 
+def test_prompt_image_fast_encoding_preserves_decoded_pixels() -> None:
+    encoded = image_to_base64(Image.effect_noise((320, 440), 64).convert("RGB"))
+    reference = base64_to_image(encoded)
+    reference.thumbnail((256, 256), Image.Resampling.LANCZOS)
+    expected = base64_to_image(
+        bytes_to_base64(image_to_jpeg_bytes(reference, quality=70, optimize=True))
+    )
+    actual = base64_to_image(to_prompt_data_uri(encoded, max_edge=256, quality=70))
+    assert actual.size == expected.size
+    assert actual.tobytes() == expected.tobytes()
+
+
 def test_prompt_image_cache_reuses_equivalent_encoding_settings() -> None:
     encoded = _encoded()
     settings = get_settings()
@@ -67,13 +84,16 @@ def test_prompt_image_cache_reuses_equivalent_encoding_settings() -> None:
             page_number=1,
             max_edge=settings.llm_image_max_edge,
             quality=settings.llm_image_quality,
-            settings=dataclasses.replace(settings, log_level="DEBUG"),
+            settings=dataclasses.replace(
+                settings, log_level="DEBUG", jpeg_optimize=not settings.jpeg_optimize
+            ),
         )
     assert repeated == first
     assert encode.call_count == 1
+    assert encode.call_args.kwargs["optimize"] is False
 
 
-@pytest.mark.parametrize("change", ["document", "page", "edge", "quality", "optimize", "content"])
+@pytest.mark.parametrize("change", ["document", "page", "edge", "quality", "content"])
 def test_prompt_image_cache_keeps_distinct_page_variants_fresh(change: str) -> None:
     encoded = _encoded()
     settings = get_settings()
@@ -87,10 +107,6 @@ def test_prompt_image_cache_keeps_distinct_page_variants_fresh(change: str) -> N
         changed["max_edge"] = 256
     elif change == "quality":
         changed["quality"] = 40
-    elif change == "optimize":
-        changed["settings"] = dataclasses.replace(
-            settings, jpeg_optimize=not settings.jpeg_optimize
-        )
     new_encoded = (
         image_to_base64(Image.new("RGB", (1024, 1408), "red")) if change == "content" else encoded
     )
