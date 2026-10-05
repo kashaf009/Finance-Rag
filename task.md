@@ -4,15 +4,16 @@
 
 Reduce end-to-end latency and perceived latency of a chat turn in the Finance RAG app.
 
-## Progress (2026-10-04)
+## Progress (2026-10-05)
 
 | Task | Status | Commit |
 | --- | --- | --- |
 | 0.1 Cache the downscaled data URI per page | **DONE** | `b0db38e` |
 | 0.2 Remove wasted work inside each encode | **DONE** | `21d6321` |
 | 0.3 LRU-cache query embeddings | **DONE** | `296f07f` |
+| 0.4 Wire up the dead `LLM_MAX_RETRIES` | **DONE** | `c91e28f` |
 
-Latest automated verification: **174 backend tests passed**, with Ruff lint and formatting checks passed. All three feature commits have been pushed. Work paused after feature 0.3 at the user's request.
+Latest automated verification: **194 backend tests passed**, with Ruff lint and formatting checks passed. Work paused after feature 0.4, awaiting the user's approval to start feature 0.5.
 
 ## Scope decisions (settled)
 
@@ -136,13 +137,22 @@ Offline comparison uses the same fixed 20-case set, each run cold and repeated, 
 Across 40 chat turns, embedding calls fell from **60 to 30**. Repeated questions and their repeated rewrite queries incur zero embedding calls while cached. Every retrieval/search still queries the vector store, verified in integration tests. The fake provider has no network latency; live latency savings remain pending measurement.
 
 
+### 0.4 [DONE] Wire up the dead `LLM_MAX_RETRIES`
+
+`cfg.llm_max_retries` was included in the client cache key but never passed to `ChatOpenAI`. The OpenAI SDK silently used its default of two retries (three total attempts), even when `LLM_MAX_RETRIES=0`.
+
+**Change:** pass `max_retries=cfg.llm_max_retries` explicitly so the configured retry budget reaches the SDK.
+
+**Implementation status (2026-10-05): DONE; backend checks passed.**
+
+- Answer and utility clients now honor the configured retry budget for both Euron and Groq. Zero retries disables automatic retries; a value of `N` permits up to `N + 1` attempts. The existing default is **3 retries / 4 attempts**, so this fix makes the default more persistent than the previous SDK fallback.
+- Verification: `uv run pytest` — **194 passed**; `uv run ruff check .` and `uv run ruff format --check .` — passed. Twenty new regression cases exercise the real ChatOpenAI/OpenAI SDK through a mocked HTTP transport: environment/default settings, both roles/providers, exhausted rate-limit and timeout budgets, transient server-error recovery, and separate cached clients for different budgets. The async SDK client's retry setting is also checked.
+- The new default-budget regression failed before the implementation (three attempts instead of four), then passed after the setting was wired in. Mocked failures now produce exactly **1 / 2 / 4 attempts** for configured retry budgets **0 / 1 / 3**.
+- Re-ran the existing fixed 20-question offline set before and after the change, cold and repeated, capturing per-node timings and total wall time. All supported/refusal/two-rewrite outcomes passed; each run retained 30 total embedding calls, five image encodes per cold turn, and zero image encodes on repeats. That benchmark uses deterministic LLM fakes; actual retry behavior is covered separately by the SDK regression cases above.
+
+Live end-to-end measurement remains pending: the local API reports degraded health because Qdrant is offline.
+
 ## Pending :
-
-### 0.4 Wire up the dead `LLM_MAX_RETRIES`
-
-`cfg.llm_max_retries` appears in the client cache key (`llm/client.py:153`) but is **never passed to `ChatOpenAI`** (`client.py:185-193`). The OpenAI SDK default of `max_retries=2` silently applies, so a slow or failing call can be retried three times at up to `LLM_TIMEOUT=120 s` each — **360 s worst case**, invisible in configuration.
-
-Pass it explicitly. This makes tail latency predictable and honours a setting that currently does nothing.
 
 ### 0.5 Skip futile query rewrites
 
