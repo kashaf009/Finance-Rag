@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from unittest.mock import patch
 
 import pytest
 from PIL import Image
@@ -37,6 +38,20 @@ def test_embed_text_task_types(fake_client: FakeClient, fake_models: FakeModels)
     query_task = fake_models.calls[-1]["config"].task_type
     assert document_task == "RETRIEVAL_DOCUMENT"
     assert query_task == "RETRIEVAL_QUERY"
+
+
+def test_warmup_creates_client_once_without_spending_embedding_tokens() -> None:
+    models = FakeModels(dim=4)
+    settings = AppSettings(embed_dim=4, google_api_key="test-key")
+    embedder = GeminiEmbedder(settings)
+    with patch("google.genai.Client", return_value=FakeClient(models)) as create_client:
+        embedder.warmup()
+        embedder.warmup()
+        create_client.assert_called_once_with(api_key="test-key")
+        assert models.calls == []
+        assert embedder.embed_text("net income", query=True) == [0.1] * 4
+        create_client.assert_called_once_with(api_key="test-key")
+    assert len(models.calls) == 1
 
 
 def test_query_cache_reuses_whitespace_normalized_text(

@@ -5,6 +5,7 @@ from functools import lru_cache
 from app.core.config import AppSettings, get_settings
 from app.embed import Embedder, get_embedder
 from app.rag import RagService
+from app.rag.nodes import RagDeps
 from app.vector import QdrantStore
 
 
@@ -25,7 +26,13 @@ def get_embedder_dep() -> Embedder:
 
 @lru_cache(maxsize=1)
 def get_rag_service() -> RagService:
-    return RagService()
+    return RagService(
+        deps=RagDeps(
+            settings=get_settings(),
+            embedder=get_embedder_dep(),
+            store=get_store(),
+        )
+    )
 
 
 def reset_deps() -> None:

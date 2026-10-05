@@ -75,6 +75,12 @@ curl http://127.0.0.1:8000/health
 
 `status` is `degraded` when Qdrant is unreachable or the collection is missing.
 
+At startup, the API probes Qdrant, compiles the cached Self-RAG graph, and initializes
+the Gemini SDK client. Chat and search reuse the warmed embedder and store. Warm-up
+does not send embedding or LLM requests. Initialization failures are logged and the
+API continues to start; embedding client creation can be retried on a later request.
+Dependency caches are cleared at shutdown.
+
 ### `GET /collections`
 
 ```json

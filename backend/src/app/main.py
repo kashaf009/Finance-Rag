@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.deps import get_store, reset_deps
+from app.api.deps import get_embedder_dep, get_rag_service, get_store, reset_deps
 from app.api.routes import router
 from app.core.config import get_settings
 from app.core.env import load_env
@@ -29,8 +29,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
     except Exception as exc:
         logger.warning("Qdrant not reachable at startup: %s", exc)
-    yield
-    reset_deps()
+    try:
+        get_rag_service()
+        get_embedder_dep().warmup()
+        logger.info("RAG graph and embedding client warmed up")
+    except Exception as exc:
+        logger.warning("RAG warm-up failed at startup: %s", exc)
+    try:
+        yield
+    finally:
+        reset_deps()
 
 
 def create_app() -> FastAPI:
