@@ -130,6 +130,9 @@ class AppSettings:
     rag_relevance_threshold: float = field(
         default_factory=lambda: env_float("RAG_RELEVANCE_THRESHOLD", 0.35)
     )
+    rag_rewrite_score_floor: float = field(
+        default_factory=lambda: env_float("RAG_REWRITE_SCORE_FLOOR", 0.32)
+    )
     rag_max_rewrites: int = field(default_factory=lambda: env_int("RAG_MAX_REWRITES", 2))
 
     api_host: str = field(default_factory=lambda: env_str("API_HOST", "127.0.0.1"))

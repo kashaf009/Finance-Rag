@@ -6,6 +6,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from app.core.config import AppSettings
 from app.rag.nodes import (
     RagDeps,
     generate,
@@ -41,13 +42,21 @@ def _timed(name: str, fn: Callable[[RAGState, RagDeps], RAGState], deps: RagDeps
     return run
 
 
+def route_after_grade(state: RAGState, settings: AppSettings) -> str:
+    """Keep graph routing and streaming stage predictions on the same policy."""
+    if state.get("relevant"):
+        return "generate"
+    pages = state.get("pages") or []
+    if pages and pages[0]["score"] < settings.rag_rewrite_score_floor:
+        return "generate"
+    if state.get("rewrite_count", 0) < settings.rag_max_rewrites:
+        return "rewrite_query"
+    return "generate"
+
+
 def _make_router(deps: RagDeps) -> Callable[[RAGState], str]:
     def route(state: RAGState) -> str:
-        if state.get("relevant"):
-            return "generate"
-        if state.get("rewrite_count", 0) < deps.settings.rag_max_rewrites:
-            return "rewrite_query"
-        return "generate"
+        return route_after_grade(state, deps.settings)
 
     return route
 
