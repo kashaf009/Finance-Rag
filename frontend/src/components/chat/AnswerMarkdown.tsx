@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -18,7 +19,7 @@ import type { Citation } from '@/types/api'
  * the DOM means markers work inside paragraphs, list items, bold spans and
  * table cells alike.
  */
-export function AnswerMarkdown({
+export const AnswerMarkdown = memo(function AnswerMarkdown({
   answer,
   citations,
 }: {
@@ -83,4 +84,4 @@ export function AnswerMarkdown({
       </ReactMarkdown>
     </div>
   )
-}
+})

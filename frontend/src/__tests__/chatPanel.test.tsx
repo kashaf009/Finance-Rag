@@ -5,11 +5,13 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 
 import { ChatPanel } from '@/components/chat/ChatPanel'
+import { AnswerMarkdown } from '@/components/chat/AnswerMarkdown'
 import { queryClient } from '@/lib/queryClient'
 import { DEGRADED_HEALTH, OK_HEALTH, jsonResponse } from '@/test-utils/render'
 import type { ChatResponse, ChatStageEvent, HealthResponse } from '@/types/api'
 import { DOCUMENT } from '@/lib/document'
 import * as citations from '@/lib/citations'
+import * as chat from '@/lib/chat'
 
 /** A real answer captured from the live backend during preflight. */
 const REAL_ANSWER: ChatResponse = {
@@ -323,9 +325,55 @@ describe('sending a question', () => {
     await waitFor(() => expect(chatBodies(fetchMock)).toHaveLength(1))
     expect(chatBodies(fetchMock)[0].question).toBe('line one\nline two')
   })
+
+  it('reuses completed turns while typing and receiving stages, then renders the new answer', async () => {
+    const user = userEvent.setup()
+    const stream = controlledStream()
+    let requests = 0
+    stub(async () => ++requests === 1 ? okChat(REAL_ANSWER)() : stream.response)
+    const parseMarkers = vi.spyOn(citations, 'linkifyMarkers')
+    const renderProvenance = vi.spyOn(chat, 'provenanceLine')
+    renderPanel()
+    await waitFor(() => expect(panel().getByText('gemini-2.5-flash')).toBeInTheDocument())
+    await user.type(panel().getByRole('textbox'), 'net income?')
+    await user.click(panel().getByRole('button', { name: /^Ask$/ }))
+    await screen.findByTestId('chat-answer')
+    const parseCount = parseMarkers.mock.calls.length
+    const turnCount = renderProvenance.mock.calls.length
+
+    await user.type(panel().getByRole('textbox'), 'total assets?')
+    await user.click(panel().getByRole('button', { name: /^Ask$/ }))
+    await screen.findByTestId('chat-thinking')
+    stream.send(stage({ stage: 'grade', status: 'running', message: 'Checking page relevance', step: 1 }))
+    await screen.findByText('Check relevance')
+    expect(parseMarkers).toHaveBeenCalledTimes(parseCount)
+    expect(renderProvenance).toHaveBeenCalledTimes(turnCount)
+
+    stream.send({ type: 'complete', response: { ...REAL_ANSWER, answer: 'Total assets were €421 billion [p103].' } })
+    stream.close()
+    await screen.findByText(/Total assets were €421 billion/)
+    expect(screen.getAllByTestId('chat-answer')).toHaveLength(2)
+    expect(parseMarkers).toHaveBeenCalledTimes(parseCount + 1)
+    expect(renderProvenance).toHaveBeenCalledTimes(turnCount + 1)
+  })
 })
 
 describe('citation chips', () => {
+  it('reuses unchanged markdown but updates when the answer or citations change', () => {
+    const parseMarkers = vi.spyOn(citations, 'linkifyMarkers')
+    const props = { answer: 'Result [p30].', citations: REAL_ANSWER.citations }
+    const { rerender } = render(<AnswerMarkdown {...props} />)
+    const parseCount = parseMarkers.mock.calls.length
+    rerender(<AnswerMarkdown {...props} />)
+    expect(parseMarkers).toHaveBeenCalledTimes(parseCount)
+
+    rerender(<AnswerMarkdown {...props} answer="Updated result [p30]." />)
+    expect(screen.getByText(/Updated result/)).toBeInTheDocument()
+    rerender(<AnswerMarkdown answer="Updated result [p30]." citations={[{ ...REAL_ANSWER.citations[2], score: 0.7 }]} />)
+    expect(screen.getByTitle('p.30 · cosine 0.700')).toHaveTextContent('p.30 · 0.700')
+    expect(parseMarkers).toHaveBeenCalledTimes(parseCount + 2)
+  })
+
   it('renders one chip per page with its real cosine score', async () => {
     const user = userEvent.setup()
     stub(okChat(REAL_ANSWER))
