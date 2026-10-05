@@ -11,17 +11,15 @@ import { LIMITS } from '@/types/api'
 import { AnswerMarkdown } from '@/components/chat/AnswerMarkdown'
 import { ProviderSelect } from '@/components/chat/ProviderSelect'
 
-/** Ticking clock for the in-flight request. Frozen when inactive. */
-function useElapsed(active: boolean): number {
+/** Mounted only for a pending turn; timer ticks stay inside this leaf. */
+function Elapsed() {
   const [ms, setMs] = useState(0)
   useEffect(() => {
-    if (!active) return
     const t0 = performance.now()
-    setMs(0)
     const id = setInterval(() => setMs(performance.now() - t0), 100)
     return () => clearInterval(id)
-  }, [active])
-  return Math.round(ms)
+  }, [])
+  return <span className="text-ivory/40 ml-auto tabular-nums">{formatClock(ms)}</span>
 }
 
 function formatClock(ms: number): string {
@@ -55,7 +53,6 @@ export function ChatPanel({ className = '' }: { className?: string }) {
   const ready = Boolean(health?.collection_ready) && (health?.points ?? 0) > 0
   const canSend = ready && !pending && draft.trim().length > 0
   const overLimit = draft.length > LIMITS.questionMaxLength
-  const elapsed = useElapsed(pending)
   const lastLatency = [...turns].reverse().find((t) => t.elapsedMs != null)?.elapsedMs ?? null
 
   // Keep the newest turn in view as the transcript grows.
@@ -162,7 +159,7 @@ export function ChatPanel({ className = '' }: { className?: string }) {
             ) : null}
           </div>
         ) : (
-          turns.map((turn) => <Turn key={turn.id} turn={turn} elapsed={elapsed} />)
+          turns.map((turn) => <Turn key={turn.id} turn={turn} />)
         )}
       </div>
 
@@ -229,7 +226,7 @@ export function ChatPanel({ className = '' }: { className?: string }) {
   )
 }
 
-function Turn({ turn, elapsed }: { turn: ChatTurn; elapsed: number }) {
+function Turn({ turn }: { turn: ChatTurn }) {
   if (turn.role === 'user') {
     return (
       <div className="flex items-start space-x-3.5 justify-end" data-testid="chat-user">
@@ -255,7 +252,7 @@ function Turn({ turn, elapsed }: { turn: ChatTurn; elapsed: number }) {
           <div className="flex items-center gap-2 text-[11px] font-mono text-gold">
             <span className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse" aria-hidden />
             <span aria-live="polite">{latest?.message ?? 'Running the retrieval pipeline'}</span>
-            <span className="text-ivory/40 ml-auto tabular-nums">{formatClock(elapsed)}</span>
+            <Elapsed />
           </div>
           <StageProgress progress={turn.progress} />
         </div>
