@@ -46,13 +46,9 @@ function formatClock(ms: number): string {
 export function ChatPanel({ className = '' }: { className?: string }) {
   const { data: health, isError: healthError } = useHealth()
   const { turns, pending, send, clear, cancel } = useChat()
-  const [draft, setDraft] = useState('')
   const streamRef = useRef<HTMLDivElement>(null)
-  const textareaId = useId()
 
   const ready = Boolean(health?.collection_ready) && (health?.points ?? 0) > 0
-  const canSend = ready && !pending && draft.trim().length > 0
-  const overLimit = draft.length > LIMITS.questionMaxLength
   const lastLatency = [...turns].reverse().find((t) => t.elapsedMs != null)?.elapsedMs ?? null
 
   // Keep the newest turn in view as the transcript grows.
@@ -60,13 +56,6 @@ export function ChatPanel({ className = '' }: { className?: string }) {
     const el = streamRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [turns])
-
-  const submit = () => {
-    if (!canSend) return
-    const q = draft
-    setDraft('')
-    void send(q)
-  }
 
   return (
     <div
@@ -164,62 +153,87 @@ export function ChatPanel({ className = '' }: { className?: string }) {
       </div>
 
       {/* 4. Composer */}
-      <div className="px-5 py-4 bg-noir border-t border-noir-border">
-        <label htmlFor={textareaId} className="sr-only">
-          Ask a question about the indexed document
-        </label>
-        <textarea
-          id={textareaId}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              submit()
-            }
-          }}
-          rows={2}
-          maxLength={LIMITS.questionMaxLength}
-          disabled={!ready}
-          placeholder={
-            ready
-              ? 'Ask about the annual report…'
-              : healthError
-                ? 'Backend unreachable'
-                : 'Waiting for the index…'
+      <Composer ready={ready} healthError={healthError} pending={pending} onSend={send} onCancel={cancel} />
+    </div>
+  )
+}
+
+/** Draft edits remain local while panel updates preserve this mounted composer. */
+function Composer({ ready, healthError, pending, onSend, onCancel }: {
+  ready: boolean
+  healthError: boolean
+  pending: boolean
+  onSend: (question: string) => Promise<void>
+  onCancel: () => void
+}) {
+  const [draft, setDraft] = useState('')
+  const textareaId = useId()
+  const canSend = ready && !pending && draft.trim().length > 0
+  const overLimit = draft.length > LIMITS.questionMaxLength
+
+  const submit = () => {
+    if (!canSend) return
+    const q = draft
+    setDraft('')
+    void onSend(q)
+  }
+
+  return (
+    <div className="px-5 py-4 bg-noir border-t border-noir-border">
+      <label htmlFor={textareaId} className="sr-only">
+        Ask a question about the indexed document
+      </label>
+      <textarea
+        id={textareaId}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            submit()
           }
-          className="w-full bg-transparent border-0 text-ivory placeholder-ivory/35 text-xs sm:text-sm font-sans focus:ring-0 resize-none p-1 disabled:opacity-50"
-        />
-        <div className="flex items-center justify-between gap-3 mt-2">
-          <span
-            className={`text-[10px] font-mono ${overLimit ? 'text-red-400' : 'text-ivory/30'}`}
-            aria-live="polite"
-          >
-            {draft.length > LIMITS.questionMaxLength - 200
-              ? `${draft.length} / ${LIMITS.questionMaxLength}`
-              : 'Enter to send · Shift+Enter for a new line'}
-          </span>
-          <div className="flex items-center gap-2">
-            {pending ? (
-              <button
-                onClick={cancel}
-                type="button"
-                className="px-3 py-1.5 rounded-lg border border-white/15 text-ivory/70 hover:text-ivory hover:border-gold/40 text-xs flex items-center gap-1.5 transition-colors"
-              >
-                <Square className="w-3 h-3" aria-hidden />
-                <span>Cancel</span>
-              </button>
-            ) : null}
+        }}
+        rows={2}
+        maxLength={LIMITS.questionMaxLength}
+        disabled={!ready}
+        placeholder={
+          ready
+            ? 'Ask about the annual report…'
+            : healthError
+              ? 'Backend unreachable'
+              : 'Waiting for the index…'
+        }
+        className="w-full bg-transparent border-0 text-ivory placeholder-ivory/35 text-xs sm:text-sm font-sans focus:ring-0 resize-none p-1 disabled:opacity-50"
+      />
+      <div className="flex items-center justify-between gap-3 mt-2">
+        <span
+          className={`text-[10px] font-mono ${overLimit ? 'text-red-400' : 'text-ivory/30'}`}
+          aria-live="polite"
+        >
+          {draft.length > LIMITS.questionMaxLength - 200
+            ? `${draft.length} / ${LIMITS.questionMaxLength}`
+            : 'Enter to send · Shift+Enter for a new line'}
+        </span>
+        <div className="flex items-center gap-2">
+          {pending ? (
             <button
-              onClick={submit}
-              disabled={!canSend}
+              onClick={onCancel}
               type="button"
-              className="px-4 py-1.5 rounded-lg bg-gold hover:bg-gold-light text-noir font-semibold text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 rounded-lg border border-white/15 text-ivory/70 hover:text-ivory hover:border-gold/40 text-xs flex items-center gap-1.5 transition-colors"
             >
-              <Send className="w-3 h-3" aria-hidden />
-              <span>Ask</span>
+              <Square className="w-3 h-3" aria-hidden />
+              <span>Cancel</span>
             </button>
-          </div>
+          ) : null}
+          <button
+            onClick={submit}
+            disabled={!canSend}
+            type="button"
+            className="px-4 py-1.5 rounded-lg bg-gold hover:bg-gold-light text-noir font-semibold text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Send className="w-3 h-3" aria-hidden />
+            <span>Ask</span>
+          </button>
         </div>
       </div>
     </div>

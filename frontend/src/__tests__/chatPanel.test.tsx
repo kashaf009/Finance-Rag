@@ -12,6 +12,7 @@ import type { ChatResponse, ChatStageEvent, HealthResponse } from '@/types/api'
 import { DOCUMENT } from '@/lib/document'
 import * as citations from '@/lib/citations'
 import * as chat from '@/lib/chat'
+import * as chatHook from '@/hooks/useChat'
 
 /** A real answer captured from the live backend during preflight. */
 const REAL_ANSWER: ChatResponse = {
@@ -238,7 +239,7 @@ describe('sending a question', () => {
   it('shows live pipeline stages with a real clock and a cancel action while pending', async () => {
     const user = userEvent.setup()
     const stream = controlledStream()
-    stub(async () => stream.response)
+    const fetchMock = stub(async () => stream.response)
     renderPanel()
     await waitFor(() => expect(panel().getByText('gemini-2.5-flash')).toBeInTheDocument())
 
@@ -249,15 +250,22 @@ describe('sending a question', () => {
     expect(thinking).toBeInTheDocument()
     expect(within(thinking).getByText('Connecting to the retrieval pipeline')).toBeInTheDocument()
     expect(panel().getByRole('button', { name: /cancel/i })).toBeInTheDocument()
+    expect(panel().getByRole('textbox')).toHaveValue('')
+    await user.type(panel().getByRole('textbox'), 'next question?{Enter}')
+    expect(chatBodies(fetchMock)).toHaveLength(1)
+    expect(panel().getByRole('button', { name: /^Ask$/ })).toBeDisabled()
 
     stream.send(stage({ stage: 'retrieve', status: 'complete', message: 'Retrieved 3 relevant pages', step: 1 }))
     await waitFor(() => expect(screen.getByText('Retrieved 3 relevant pages')).toBeInTheDocument())
     stream.send(stage({ stage: 'grade', status: 'running', message: 'Checking page relevance', step: 1 }))
     await waitFor(() => expect(screen.getByText('Check relevance')).toBeInTheDocument())
+    expect(panel().getByRole('textbox')).toHaveValue('next question?')
     stream.send({ type: 'complete', response: REAL_ANSWER })
     stream.close()
     await waitFor(() => expect(screen.getByTestId('chat-answer')).toBeInTheDocument())
     expect(screen.queryByTestId('chat-thinking')).not.toBeInTheDocument()
+    expect(panel().getByRole('textbox')).toHaveValue('next question?')
+    expect(panel().getByRole('button', { name: /^Ask$/ })).toBeEnabled()
   })
 
   it('clears the transcript and the measured latency', async () => {
@@ -333,6 +341,7 @@ describe('sending a question', () => {
     stub(async () => ++requests === 1 ? okChat(REAL_ANSWER)() : stream.response)
     const parseMarkers = vi.spyOn(citations, 'linkifyMarkers')
     const renderProvenance = vi.spyOn(chat, 'provenanceLine')
+    const renderPanelHook = vi.spyOn(chatHook, 'useChat')
     renderPanel()
     await waitFor(() => expect(panel().getByText('gemini-2.5-flash')).toBeInTheDocument())
     await user.type(panel().getByRole('textbox'), 'net income?')
@@ -340,8 +349,12 @@ describe('sending a question', () => {
     await screen.findByTestId('chat-answer')
     const parseCount = parseMarkers.mock.calls.length
     const turnCount = renderProvenance.mock.calls.length
+    const panelCount = renderPanelHook.mock.calls.length
 
     await user.type(panel().getByRole('textbox'), 'total assets?')
+    expect(panel().getByRole('textbox')).toHaveValue('total assets?')
+    expect(panel().getByRole('button', { name: /^Ask$/ })).toBeEnabled()
+    expect(renderPanelHook).toHaveBeenCalledTimes(panelCount)
     await user.click(panel().getByRole('button', { name: /^Ask$/ }))
     await screen.findByTestId('chat-thinking')
     stream.send(stage({ stage: 'grade', status: 'running', message: 'Checking page relevance', step: 1 }))
