@@ -359,6 +359,22 @@ describe('sending a question', () => {
 })
 
 describe('citation chips', () => {
+  it('keeps citation lookup scoped to each answer when one answer changes', () => {
+    const renderAnswers = (score: number) => (
+      <>
+        <AnswerMarkdown answer="First result [p30]." citations={[{ ...REAL_ANSWER.citations[2], score }]} />
+        <AnswerMarkdown answer="Second result [p30]." citations={[{ ...REAL_ANSWER.citations[2], score: 0.9 }]} />
+      </>
+    )
+    const { rerender } = render(renderAnswers(0.5))
+    expect(screen.getByTitle('p.30 · cosine 0.500')).toHaveTextContent('p.30 · 0.500')
+    expect(screen.getByTitle('p.30 · cosine 0.900')).toHaveTextContent('p.30 · 0.900')
+    rerender(renderAnswers(0.7))
+    expect(screen.queryByTitle('p.30 · cosine 0.500')).not.toBeInTheDocument()
+    expect(screen.getByTitle('p.30 · cosine 0.700')).toHaveTextContent('p.30 · 0.700')
+    expect(screen.getByTitle('p.30 · cosine 0.900')).toHaveTextContent('p.30 · 0.900')
+  })
+
   it('reuses unchanged markdown but updates when the answer or citations change', () => {
     const parseMarkers = vi.spyOn(citations, 'linkifyMarkers')
     const props = { answer: 'Result [p30].', citations: REAL_ANSWER.citations }

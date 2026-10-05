@@ -1,5 +1,5 @@
-import { memo } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { createContext, memo, useContext, type ComponentProps } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import {
@@ -9,6 +9,58 @@ import {
   linkifyMarkers,
 } from '@/lib/citations'
 import type { Citation } from '@/types/api'
+
+const REMARK_PLUGINS = [remarkGfm]
+const CitationsContext = createContext<ReadonlyMap<number, Citation>>(new Map())
+
+function MarkdownLink({ href, children, ...rest }: ComponentProps<'a'>) {
+  const byPage = useContext(CitationsContext)
+  if (href?.startsWith(CITE_HREF_PREFIX)) {
+    const pages = href
+      .slice(CITE_HREF_PREFIX.length)
+      .split(',')
+      .map((n) => Number.parseInt(n, 10))
+      .filter((n) => Number.isFinite(n))
+
+    return (
+      <span className="inline-flex flex-wrap gap-1 align-middle">
+        {pages.map((page) => {
+          const citation = byPage.get(page)
+          return (
+            <span
+              key={page}
+              className="citation-chip"
+              data-cited={citation ? 'yes' : 'no'}
+              title={
+                citation
+                  ? `${formatPage(page)} · cosine ${formatScore(citation.score)}`
+                  : `${formatPage(page)} · no citation returned for this page`
+              }
+            >
+              {formatPage(page)}
+              {citation ? (
+                /* The spaces live inside the string, not on a flex
+                   gap: gap-driven spacing vanishes from textContent,
+                   so "p.30" + "0.518" copied out as "p.300.518". */
+                <span className="citation-chip-score">
+                  {' '}
+                  · {formatScore(citation.score)}
+                </span>
+              ) : null}
+            </span>
+          )
+        })}
+      </span>
+    )
+  }
+  return (
+    <a href={href} className="prose-chat-link" target="_blank" rel="noreferrer noopener" {...rest}>
+      {children}
+    </a>
+  )
+}
+
+const MARKDOWN_COMPONENTS: Components = { a: MarkdownLink }
 
 /**
  * Renders a chat answer as markdown with page markers turned into chips.
@@ -30,58 +82,11 @@ export const AnswerMarkdown = memo(function AnswerMarkdown({
 
   return (
     <div className="prose-chat">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a({ href, children, ...rest }) {
-            if (href?.startsWith(CITE_HREF_PREFIX)) {
-              const pages = href
-                .slice(CITE_HREF_PREFIX.length)
-                .split(',')
-                .map((n) => Number.parseInt(n, 10))
-                .filter((n) => Number.isFinite(n))
-
-              return (
-                <span className="inline-flex flex-wrap gap-1 align-middle">
-                  {pages.map((page) => {
-                    const citation = byPage.get(page)
-                    return (
-                      <span
-                        key={page}
-                        className="citation-chip"
-                        data-cited={citation ? 'yes' : 'no'}
-                        title={
-                          citation
-                            ? `${formatPage(page)} · cosine ${formatScore(citation.score)}`
-                            : `${formatPage(page)} · no citation returned for this page`
-                        }
-                      >
-                        {formatPage(page)}
-                        {citation ? (
-                          /* The spaces live inside the string, not on a flex
-                             gap: gap-driven spacing vanishes from textContent,
-                             so "p.30" + "0.518" copied out as "p.300.518". */
-                          <span className="citation-chip-score">
-                            {' '}
-                            · {formatScore(citation.score)}
-                          </span>
-                        ) : null}
-                      </span>
-                    )
-                  })}
-                </span>
-              )
-            }
-            return (
-              <a href={href} className="prose-chat-link" target="_blank" rel="noreferrer noopener" {...rest}>
-                {children}
-              </a>
-            )
-          },
-        }}
-      >
-        {linkifyMarkers(answer)}
-      </ReactMarkdown>
+      <CitationsContext.Provider value={byPage}>
+        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
+          {linkifyMarkers(answer)}
+        </ReactMarkdown>
+      </CitationsContext.Provider>
     </div>
   )
 })
