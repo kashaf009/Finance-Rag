@@ -36,7 +36,7 @@ from app.llm import (
 )
 from app.llm import client as llm_client
 from app.llm import images as prompt_images
-from app.llm.prompts import answer_prompt
+from app.llm.prompts import ANSWER_SYSTEM, GRADE_PROMPT, SELF_CHECK_SYSTEM, answer_prompt
 from tests.fakes import FakeLLM
 
 
@@ -434,6 +434,20 @@ def test_answer_prompt_asks_for_page_markers() -> None:
     assert "p13" in prompt
     assert "[p" in prompt
     assert "net income" in prompt
+
+
+def test_prompts_define_polite_conversation_and_strict_scope() -> None:
+    prompt = answer_prompt("hello", ["p12"])
+
+    assert "greeting" in prompt.lower()
+    assert "assistant-identity" in prompt.lower()
+    assert "polite conversational response" in prompt.lower()
+    assert "greets" in ANSWER_SYSTEM.lower()
+    assert "finance rag" in ANSWER_SYSTEM.lower()
+    assert "not a general-purpose assistant" in ANSWER_SYSTEM.lower()
+    assert NOT_FOUND_ANSWER in ANSWER_SYSTEM
+    assert "outside the indexed bank" in GRADE_PROMPT.lower()
+    assert "conversational exception" in SELF_CHECK_SYSTEM.lower()
 
 
 def test_not_found_answer_is_exported() -> None:
