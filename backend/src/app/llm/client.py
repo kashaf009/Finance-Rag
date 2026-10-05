@@ -188,6 +188,7 @@ def build_llm(role: str = ANSWER, settings: AppSettings | None = None) -> ChatOp
         base_url=resolved.base_url,
         temperature=temperature,
         request_timeout=cfg.llm_timeout,
+        max_retries=cfg.llm_max_retries,
         model_kwargs={"max_completion_tokens": cfg.llm_max_completion_tokens},
         extra_body=extra_body or None,
     )
