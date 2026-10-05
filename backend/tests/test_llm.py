@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import base64
 import dataclasses
-from unittest.mock import patch
+from collections.abc import Iterator
+from functools import partial
+from unittest.mock import Mock, patch
 
+import httpx
 import pytest
+from langchain_openai import ChatOpenAI
+from openai import APITimeoutError, InternalServerError, RateLimitError
 from PIL import Image
 
 from app.core.config import get_settings, reset_settings
@@ -29,6 +34,7 @@ from app.llm import (
     text_of,
     to_prompt_data_uri,
 )
+from app.llm import client as llm_client
 from app.llm import images as prompt_images
 from app.llm.prompts import answer_prompt
 from tests.fakes import FakeLLM
@@ -169,6 +175,96 @@ def test_build_llm_omits_reasoning_effort_unless_configured(monkeypatch) -> None
     finally:
         reset_settings()
         reset_llm_cache()
+
+
+@pytest.fixture
+def llm_http(monkeypatch: pytest.MonkeyPatch) -> Iterator[Mock]:
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("LLM_MAX_PAGES", "3")
+    handler = Mock()
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        monkeypatch.setattr(llm_client, "ChatOpenAI", partial(ChatOpenAI, http_client=http_client))
+        yield handler
+
+
+@pytest.mark.parametrize("provider", ["euron", "groq"])
+@pytest.mark.parametrize("role", [ANSWER, UTILITY])
+@pytest.mark.parametrize("retries", [None, 0, 1, 3])
+def test_build_llm_honors_retry_budget(
+    monkeypatch: pytest.MonkeyPatch, llm_http: Mock, provider: str, role: str, retries: int | None
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", provider)
+    if retries is None:
+        monkeypatch.delenv("LLM_MAX_RETRIES", raising=False)
+    else:
+        monkeypatch.setenv("LLM_MAX_RETRIES", str(retries))
+    llm_http.return_value = httpx.Response(
+        429, headers={"retry-after-ms": "1"}, json={"error": {"message": "Rate limited"}}
+    )
+    model = build_llm(role)
+    with pytest.raises(RateLimitError):
+        model.invoke("What was net income?")
+    expected_retries = 3 if retries is None else retries
+    assert llm_http.call_count == expected_retries + 1
+    assert model.root_async_client.max_retries == expected_retries
+    assert build_llm(role) is model
+
+
+def test_build_llm_keeps_cached_retry_budgets_separate_and_recovers(llm_http: Mock) -> None:
+    settings = dataclasses.replace(get_settings(), llm_max_retries=0)
+    failure = httpx.Response(
+        503, headers={"retry-after-ms": "1"}, json={"error": {"message": "Unavailable"}}
+    )
+    llm_http.return_value = failure
+    no_retries = build_llm(ANSWER, settings)
+    with pytest.raises(InternalServerError):
+        no_retries.invoke("What was net income?")
+    assert llm_http.call_count == 1
+
+    llm_http.side_effect = [
+        failure,
+        httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "test-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "Recovered"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        ),
+    ]
+    with_retries = build_llm(ANSWER, dataclasses.replace(settings, llm_max_retries=1))
+    assert with_retries is not no_retries
+    assert text_of(with_retries.invoke("What was net income?")) == "Recovered"
+    assert llm_http.call_count == 3
+
+    llm_http.reset_mock(side_effect=True)
+    assert build_llm(ANSWER, settings) is no_retries
+    with pytest.raises(InternalServerError):
+        no_retries.invoke("What was net income?")
+    assert llm_http.call_count == 1
+
+
+@pytest.mark.parametrize("retries", [0, 1, 3])
+def test_build_llm_bounds_retry_timeouts(llm_http: Mock, retries: int) -> None:
+    settings = dataclasses.replace(get_settings(), llm_max_retries=retries)
+    llm_http.side_effect = httpx.ReadTimeout("Timed out")
+    model = build_llm(UTILITY, settings)
+    # Remove backoff waits while leaving the SDK's actual retry loop in place.
+    with (
+        patch.object(model.root_client, "_calculate_retry_timeout", return_value=0),
+        pytest.raises(APITimeoutError),
+    ):
+        model.invoke("What was net income?")
+    assert llm_http.call_count == retries + 1
 
 
 def test_build_llm_sends_reasoning_effort_only_to_utility_when_set(monkeypatch) -> None:
