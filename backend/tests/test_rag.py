@@ -324,6 +324,111 @@ def test_low_score_short_circuits_grader() -> None:
     ]
 
 
+@pytest.mark.parametrize("streaming", [False, True])
+def test_below_rewrite_floor_skips_futile_calls_and_stream_stages(streaming: bool) -> None:
+    utility = FakeLLM([])
+    answer = FakeLLM([NOT_FOUND_ANSWER])
+    deps = _deps(utility, answer, [_page(1, 0.30595598)])
+    service = RagService(deps=deps)
+    expected_stages = ["retrieve", "grade", "generate", "self_check"]
+    if streaming:
+        events = list(service.stream("What is the weather in New York today?"))
+        result = events[-1]["response"]
+        for status in ("running", "complete"):
+            assert [event["stage"] for event in events if event.get("status") == status] == (
+                expected_stages
+            )
+    else:
+        result = service.answer("What is the weather in New York today?")
+    assert isinstance(result, AnswerResult)
+    assert result.answer == NOT_FOUND_ANSWER
+    assert result.supported is False
+    assert result.citations == []
+    assert result.rewrites == 0
+    assert len(deps.store.queries) == deps.embedder.calls == 1
+    assert utility.calls == []
+    assert len(answer.calls) == 1
+    assert [step["node"] for step in result.trace] == expected_stages
+    assert result.trace[1]["reason"] == (
+        "top score 0.306 below rewrite floor 0.320; skipping rewrites"
+    )
+    assert all(isinstance(step["ms"], int) for step in result.trace)
+
+
+@pytest.mark.parametrize(("score", "floor"), [(0.32, 0.32), (0.33859748, 0.32), (0.1, -1.0)])
+def test_rewrite_floor_preserves_boundary_borderline_and_disabled_retries(
+    score: float, floor: float
+) -> None:
+    deps = _deps(
+        FakeLLM(["broader query", "another query"]),
+        FakeLLM([NOT_FOUND_ANSWER]),
+        [_page(1, score)],
+        rag_rewrite_score_floor=floor,
+    )
+    result = RagService(deps=deps).answer("unanswerable question?")
+    assert result.rewrites == 2
+    assert len(deps.store.queries) == deps.embedder.calls == 3
+    assert len(deps.utility_llm.calls) == 2
+    assert result.query == "another query"
+    assert result.supported is False
+
+
+def test_rewrite_stops_when_a_later_retrieval_falls_below_floor() -> None:
+    deps = _deps(
+        FakeLLM(["broader query"]),
+        FakeLLM([NOT_FOUND_ANSWER]),
+        [_page(1, 0.34)],
+    )
+    original_search = deps.store.search
+
+    def search(vector: list[float], *, limit: int) -> list[FakeHit]:
+        if deps.store.queries:
+            deps.store.pages = [_page(2, 0.30)]
+        return original_search(vector, limit=limit)
+
+    with patch.object(deps.store, "search", side_effect=search):
+        events = list(RagService(deps=deps).stream("unanswerable question?"))
+    result = events[-1]["response"]
+    assert isinstance(result, AnswerResult)
+    assert result.rewrites == 1
+    assert len(deps.store.queries) == deps.embedder.calls == 2
+    assert len(deps.utility_llm.calls) == 1
+    running = [event["stage"] for event in events if event.get("status") == "running"]
+    completed = [event["stage"] for event in events if event.get("status") == "complete"]
+    assert (
+        running
+        == completed
+        == ["retrieve", "grade", "rewrite_query", "retrieve", "grade", "generate", "self_check"]
+    )
+
+
+def test_rewrite_floor_retains_generation_and_grounding_verification() -> None:
+    deps = _deps(
+        FakeLLM(["SUPPORTED"]),
+        FakeLLM(["Financial result [p1]."]),
+        [_page(1, 0.319999)],
+    )
+    result = RagService(deps=deps).answer("What was the financial result?")
+    assert result.rewrites == 0
+    assert result.supported is True
+    assert [citation.page_number for citation in result.citations] == [1]
+    assert len(deps.answer_llm.calls) == len(deps.utility_llm.calls) == 1
+    assert result.trace[-1]["node"] == "self_check"
+    assert result.trace[-1]["supported"] is True
+
+
+def test_rewrite_floor_is_configurable_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RAG_REWRITE_SCORE_FLOOR", "0.25")
+    deps = _deps(
+        FakeLLM(["broader query", "another query"]),
+        FakeLLM([NOT_FOUND_ANSWER]),
+        [_page(1, 0.30)],
+    )
+    assert deps.settings.rag_rewrite_score_floor == 0.25
+    result = RagService(deps=deps).answer("unanswerable question?")
+    assert result.rewrites == 2
+
+
 def test_search_returns_citations_with_downscaled_images() -> None:
     deps = _deps(FakeLLM([]), FakeLLM([]), [_page(7, 0.77)])
     service = RagService(deps=deps, graph=build_graph(deps))

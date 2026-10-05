@@ -145,7 +145,8 @@ START -> retrieve -> grade_documents
 - **retrieve** embeds the query, searches Qdrant, and prepares the prompt images needed
   downstream. Grading, generation, self-check, and citations reuse those same data URIs.
 - **grade_documents** scores pages; a low top score short-circuits the grader LLM call.
-- **rewrite_query** broadens the query and re-retrieves when grading fails.
+- **rewrite_query** broadens the query and re-retrieves when grading fails. Scores below
+  `RAG_REWRITE_SCORE_FLOOR` bypass rewrites and proceed to generation and self-check.
 - **generate** answers from the attached page images, citing inline `[pN]` markers.
 - **self_check** verifies the answer against the pages; unsupported or refused answers
   become the fixed refusal.
@@ -161,10 +162,18 @@ All settings come from `.env`; see `.env.example` for the full list. Frequently 
 | `RAG_TOP_K` | `5` | Pages retrieved per attempt |
 | `RAG_MAX_REWRITES` | `2` | Query rewrites before giving up |
 | `RAG_RELEVANCE_THRESHOLD` | `0.35` | Minimum top score to consult the grader |
+| `RAG_REWRITE_SCORE_FLOOR` | `0.32` | Skip rewrites below this top score; `-1` disables the cutoff |
 | `LLM_MAX_PAGES` | `5` | Page images attached to each LLM call |
 | `LLM_IMAGE_MAX_EDGE` | `768` | Prompt images downscaled to this max edge |
 | `LLM_IMAGE_QUALITY` | `70` | JPEG quality for prompt images |
 | `LLM_MAX_COMPLETION_TOKENS` | `2048` | Raise for long answers |
+
+The rewrite floor was calibrated against live retrievals from the 139-page JPM report:
+seven supported answers scored 0.481–0.539, while an unrelated weather query scored
+0.306 and its two rewrites dropped to 0.295 and 0.292, ending in refusal. The next
+observed low score was 0.339, so 0.32 cuts off the isolated low-score case while
+preserving the measured borderline retrievals. Equality still permits rewrites.
+Recalibrate this setting when changing the document or embedding model.
 
 ## Development
 

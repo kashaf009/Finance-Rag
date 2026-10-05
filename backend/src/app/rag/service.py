@@ -5,12 +5,12 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.core.config import get_settings
+from app.core.config import AppSettings, get_settings
 from app.core.logging import get_logger
 from app.embed import get_embedder
 from app.llm import NOT_FOUND_ANSWER, to_prompt_data_uri
 from app.llm.prompts import is_refusal
-from app.rag.graph import build_graph
+from app.rag.graph import build_graph, route_after_grade
 from app.rag.nodes import PAGE_MARKER, RagDeps
 from app.rag.state import RAGState, RetrievedPage
 from app.vector import QdrantStore
@@ -52,13 +52,11 @@ def _completed_stage_message(stage: str, step: dict[str, object]) -> str:
     return f"Completed {stage}"
 
 
-def _next_stage(stage: str, state: RAGState, max_rewrites: int) -> str | None:
+def _next_stage(stage: str, state: RAGState, settings: AppSettings) -> str | None:
     if stage == "retrieve":
         return "grade"
     if stage == "grade":
-        if not state.get("relevant") and state.get("rewrite_count", 0) < max_rewrites:
-            return "rewrite_query"
-        return "generate"
+        return route_after_grade(state, settings)
     if stage == "rewrite_query":
         return "retrieve"
     if stage == "generate":
@@ -212,7 +210,7 @@ class RagService:
                     "step": len(previous_trace) + 1,
                     "meta": _stream_meta(node, step, state),
                 }
-                next_stage = _next_stage(node, state, self._deps.settings.rag_max_rewrites)
+                next_stage = _next_stage(node, state, self._deps.settings)
                 if next_stage is not None:
                     yield {
                         "type": "stage",

@@ -136,6 +136,18 @@ def grade_documents(state: RAGState, deps: RagDeps) -> RAGState:
         }
 
     best = pages[0]["score"]
+    floor = deps.settings.rag_rewrite_score_floor
+    if best < floor:
+        return {
+            **state,
+            "relevant": False,
+            "trace": _trace(
+                state,
+                "grade",
+                relevant=False,
+                reason=f"top score {best:.3f} below rewrite floor {floor:.3f}; skipping rewrites",
+            ),
+        }
     if best < deps.settings.rag_relevance_threshold:
         reason = f"top score {best:.3f} below threshold"
         return {
