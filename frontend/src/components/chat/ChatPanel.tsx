@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useRef, useState } from 'react'
+import { memo, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertCircle, Check, Cpu, Loader2, RotateCcw, Send, Square } from 'lucide-react'
 
@@ -49,7 +49,10 @@ export function ChatPanel({ className = '' }: { className?: string }) {
   const streamRef = useRef<HTMLDivElement>(null)
 
   const ready = Boolean(health?.collection_ready) && (health?.points ?? 0) > 0
-  const lastLatency = [...turns].reverse().find((t) => t.elapsedMs != null)?.elapsedMs ?? null
+  const lastLatency = useMemo(
+    () => [...turns].reverse().find((t) => t.elapsedMs != null)?.elapsedMs ?? null,
+    [turns],
+  )
 
   // Keep the newest turn in view as the transcript grows.
   useEffect(() => {
