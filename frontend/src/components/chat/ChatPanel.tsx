@@ -47,6 +47,8 @@ export function ChatPanel({ className = '' }: { className?: string }) {
   const { data: health, isError: healthError } = useHealth()
   const { turns, pending, send, clear, cancel } = useChat()
   const streamRef = useRef<HTMLDivElement>(null)
+  const wasAtBottomRef = useRef(true)
+  const scrollFrameRef = useRef<number | null>(null)
 
   const ready = Boolean(health?.collection_ready) && (health?.points ?? 0) > 0
   const lastLatency = useMemo(
@@ -54,10 +56,33 @@ export function ChatPanel({ className = '' }: { className?: string }) {
     [turns],
   )
 
-  // Keep the newest turn in view as the transcript grows.
-  useEffect(() => {
+  const handleStreamScroll = () => {
     const el = streamRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    wasAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 24
+  }
+
+  // Keep the newest turn in view only when the reader was already at the bottom.
+  useEffect(() => {
+    if (turns.length === 0) {
+      // Clearing the transcript removes the previous scroll position. Treat the
+      // empty reader as being at the bottom for the next exchange.
+      wasAtBottomRef.current = true
+      return
+    }
+    if (!wasAtBottomRef.current) return
+    if (scrollFrameRef.current != null) cancelAnimationFrame(scrollFrameRef.current)
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      const el = streamRef.current
+      if (el && wasAtBottomRef.current) el.scrollTop = el.scrollHeight
+    })
+    return () => {
+      if (scrollFrameRef.current != null) {
+        cancelAnimationFrame(scrollFrameRef.current)
+        scrollFrameRef.current = null
+      }
+    }
   }, [turns])
 
   return (
@@ -131,6 +156,7 @@ export function ChatPanel({ className = '' }: { className?: string }) {
       {/* 3. Transcript */}
       <div
         ref={streamRef}
+        onScroll={handleStreamScroll}
         role="log"
         aria-live="polite"
         aria-label="Chat transcript"

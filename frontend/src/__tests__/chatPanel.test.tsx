@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -262,6 +262,7 @@ describe('sending a question', () => {
     expect(panel().getByRole('textbox')).toHaveValue('next question?')
     stream.send({ type: 'complete', response: REAL_ANSWER })
     stream.close()
+    await screen.findByTestId('chat-answer')
     await waitFor(() => expect(screen.getByTestId('chat-answer')).toBeInTheDocument())
     expect(screen.queryByTestId('chat-thinking')).not.toBeInTheDocument()
     expect(panel().getByRole('textbox')).toHaveValue('next question?')
@@ -282,6 +283,68 @@ describe('sending a question', () => {
     expect(screen.queryByTestId('chat-user')).not.toBeInTheDocument()
     expect(screen.queryByTestId('chat-answer')).not.toBeInTheDocument()
     expect(panel().getByText('—')).toBeInTheDocument()
+  })
+
+  it('schedules autoscroll in an animation frame when already at the bottom', async () => {
+    const user = userEvent.setup()
+    const stream = controlledStream()
+    const frame = vi.fn<(callback: FrameRequestCallback) => number>(() => 1)
+    vi.stubGlobal('requestAnimationFrame', frame)
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    stub(async () => stream.response)
+    renderPanel()
+    await waitFor(() => expect(panel().getByText('gemini-2.5-flash')).toBeInTheDocument())
+
+    const transcript = screen.getByTestId('chat-stream')
+    let scrollHeight = 500
+    let scrollTop = 300
+    Object.defineProperties(transcript, {
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, get: () => scrollTop, set: (value) => { scrollTop = value } },
+    })
+    for (const [callback] of frame.mock.calls) act(() => callback(0))
+    frame.mockClear()
+
+    await user.type(panel().getByRole('textbox'), 'keep me in view')
+    await user.click(panel().getByRole('button', { name: /^Ask$/ }))
+    expect(frame).toHaveBeenCalledTimes(1)
+    scrollHeight = 800
+    act(() => frame.mock.calls[0][0](0))
+    expect(scrollTop).toBe(800)
+    stream.send({ type: 'complete', response: REAL_ANSWER })
+    stream.close()
+    await screen.findByTestId('chat-answer')
+  })
+
+  it('does not autoscroll when the reader has moved away from the bottom', async () => {
+    const user = userEvent.setup()
+    const stream = controlledStream()
+    const frame = vi.fn<(callback: FrameRequestCallback) => number>(() => 1)
+    vi.stubGlobal('requestAnimationFrame', frame)
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    stub(async () => stream.response)
+    renderPanel()
+    await waitFor(() => expect(panel().getByText('gemini-2.5-flash')).toBeInTheDocument())
+
+    const transcript = screen.getByTestId('chat-stream')
+    let scrollHeight = 500
+    let scrollTop = 100
+    Object.defineProperties(transcript, {
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, get: () => scrollTop, set: (value) => { scrollTop = value } },
+    })
+    fireEvent.scroll(transcript)
+
+    await user.type(panel().getByRole('textbox'), 'do not move me')
+    await user.click(panel().getByRole('button', { name: /^Ask$/ }))
+    expect(frame).not.toHaveBeenCalled()
+    scrollHeight = 800
+    expect(scrollTop).toBe(100)
+    stream.send({ type: 'complete', response: REAL_ANSWER })
+    stream.close()
+    await screen.findByTestId('chat-answer')
   })
 
   it('updates only the clock while pending and stops its timer on completion', async () => {
