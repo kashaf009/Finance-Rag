@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { memo, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertCircle, Check, Cpu, Loader2, RotateCcw, Send, Square } from 'lucide-react'
 
@@ -226,7 +226,7 @@ export function ChatPanel({ className = '' }: { className?: string }) {
   )
 }
 
-function Turn({ turn }: { turn: ChatTurn }) {
+const Turn = memo(function Turn({ turn }: { turn: ChatTurn }) {
   if (turn.role === 'user') {
     return (
       <div className="flex items-start space-x-3.5 justify-end" data-testid="chat-user">
@@ -319,7 +319,7 @@ function Turn({ turn }: { turn: ChatTurn }) {
       </div>
     </div>
   )
-}
+})
 
 const STAGE_LABELS: Record<ChatProgress['stage'], string> = {
   retrieve: 'Retrieve pages',
@@ -350,7 +350,7 @@ function progressDetail(item: ChatProgress): string | null {
   return null
 }
 
-function StageProgress({ progress }: { progress: ChatProgress[] }) {
+const StageProgress = memo(function StageProgress({ progress }: { progress: ChatProgress[] }) {
   return (
     <ol
       className="mt-3 space-y-1.5 border-l border-gold/25 pl-3"
@@ -382,4 +382,4 @@ function StageProgress({ progress }: { progress: ChatProgress[] }) {
       })}
     </ol>
   )
-}
+})
