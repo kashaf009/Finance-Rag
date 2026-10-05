@@ -375,19 +375,31 @@ describe('citation chips', () => {
     expect(screen.getByTitle('p.30 · cosine 0.900')).toHaveTextContent('p.30 · 0.900')
   })
 
-  it('reuses unchanged markdown but updates when the answer or citations change', () => {
+  it('reuses derived markdown data independently when the answer or citations change', () => {
     const parseMarkers = vi.spyOn(citations, 'linkifyMarkers')
     const props = { answer: 'Result [p30].', citations: REAL_ANSWER.citations }
+    const buildLookup = vi.spyOn(props.citations, 'map')
     const { rerender } = render(<AnswerMarkdown {...props} />)
     const parseCount = parseMarkers.mock.calls.length
+    expect(buildLookup).toHaveBeenCalledTimes(1)
     rerender(<AnswerMarkdown {...props} />)
     expect(parseMarkers).toHaveBeenCalledTimes(parseCount)
+    expect(buildLookup).toHaveBeenCalledTimes(1)
 
     rerender(<AnswerMarkdown {...props} answer="Updated result [p30]." />)
     expect(screen.getByText(/Updated result/)).toBeInTheDocument()
-    rerender(<AnswerMarkdown answer="Updated result [p30]." citations={[{ ...REAL_ANSWER.citations[2], score: 0.7 }]} />)
+    expect(parseMarkers).toHaveBeenCalledTimes(parseCount + 1)
+    expect(buildLookup).toHaveBeenCalledTimes(1)
+    const updatedCitations = [{ ...REAL_ANSWER.citations[2], score: 0.7 }]
+    const rebuildLookup = vi.spyOn(updatedCitations, 'map')
+    rerender(<AnswerMarkdown answer="Updated result [p30]." citations={updatedCitations} />)
     expect(screen.getByTitle('p.30 · cosine 0.700')).toHaveTextContent('p.30 · 0.700')
+    expect(parseMarkers).toHaveBeenCalledTimes(parseCount + 1)
+    expect(rebuildLookup).toHaveBeenCalledTimes(1)
+    rerender(<AnswerMarkdown answer="Another result [p30]." citations={updatedCitations} />)
+    expect(screen.getByText(/Another result/)).toBeInTheDocument()
     expect(parseMarkers).toHaveBeenCalledTimes(parseCount + 2)
+    expect(rebuildLookup).toHaveBeenCalledTimes(1)
   })
 
   it('renders one chip per page with its real cosine score', async () => {
