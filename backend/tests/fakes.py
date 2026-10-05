@@ -15,6 +15,9 @@ class FakeEmbedder:
     def dim(self) -> int:
         return self._dim
 
+    def warmup(self) -> None:
+        pass
+
     def _vector(self, seed: int) -> list[float]:
         return [float((seed + index) % 7) for index in range(self._dim)]
 

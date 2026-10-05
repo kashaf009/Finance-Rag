@@ -28,6 +28,10 @@ class GeminiEmbedder:
     def dim(self) -> int:
         return self._settings.embed_dim
 
+    def warmup(self) -> None:
+        """Initialize the SDK client locally without making an embedding request."""
+        self._ensure_client()
+
     def _ensure_client(self) -> Any:
         if self._client is None:
             from google import genai
