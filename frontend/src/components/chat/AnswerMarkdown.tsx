@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, type ComponentProps } from 'react'
+import { createContext, memo, useContext, useMemo, type ComponentProps } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -78,13 +78,14 @@ export const AnswerMarkdown = memo(function AnswerMarkdown({
   answer: string
   citations: Citation[]
 }) {
-  const byPage = new Map(citations.map((c) => [c.page_number, c]))
+  const byPage = useMemo(() => new Map(citations.map((c) => [c.page_number, c])), [citations])
+  const markdown = useMemo(() => linkifyMarkers(answer), [answer])
 
   return (
     <div className="prose-chat">
       <CitationsContext.Provider value={byPage}>
         <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
-          {linkifyMarkers(answer)}
+          {markdown}
         </ReactMarkdown>
       </CitationsContext.Provider>
     </div>
