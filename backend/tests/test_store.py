@@ -20,7 +20,12 @@ def make_point(page: int, vector: list[float], source: str | None = "doc.pdf") -
     return VectorPoint(
         id=page_point_id("doc", page),
         vector=vector,
-        payload=page_payload(artifact, doc_id="doc", source=source),
+        payload=page_payload(
+            artifact,
+            doc_id="doc",
+            prompt_data_uri="data:image/jpeg;base64,AAAA",
+            source=source,
+        ),
     )
 
 
@@ -32,21 +37,32 @@ def test_page_point_id_is_deterministic() -> None:
 
 def test_page_payload_shape() -> None:
     artifact = PageArtifact(page_number=7, base64="QUJD", width=1024, height=1408)
-    payload = page_payload(artifact, doc_id="doc", source="doc.pdf")
+    payload = page_payload(
+        artifact,
+        doc_id="doc",
+        prompt_data_uri="data:image/jpeg;base64,QUJD",
+        source="doc.pdf",
+    )
     assert payload == {
         "doc_id": "doc",
         "page_number": 7,
         "mime": "image/jpeg",
         "width": 1024,
         "height": 1408,
-        "image_base64": "QUJD",
+        "prompt_data_uri": "data:image/jpeg;base64,QUJD",
         "source": "doc.pdf",
     }
 
 
 def test_page_payload_without_source() -> None:
     artifact = PageArtifact(page_number=1, base64="QUJD", width=8, height=8)
-    assert "source" not in page_payload(artifact, doc_id="doc")
+    payload = page_payload(
+        artifact,
+        doc_id="doc",
+        prompt_data_uri="data:image/jpeg;base64,QUJD",
+    )
+    assert "source" not in payload
+    assert "image_base64" not in payload
 
 
 def test_ensure_collection_creates() -> None:
@@ -115,7 +131,7 @@ def test_search_ranks_closest_first() -> None:
     )
     hits = store.search([1.0, 0.0, 0.0, 0.0], limit=2)
     assert [hit.payload["page_number"] for hit in hits] == [2, 1]
-    assert hits[0].payload["image_base64"] == "AAAA"
+    assert hits[0].payload["prompt_data_uri"] == "data:image/jpeg;base64,AAAA"
     assert hits[0].payload["doc_id"] == "doc"
 
 

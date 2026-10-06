@@ -8,6 +8,7 @@ from qdrant_client import QdrantClient
 
 from app import cli
 from app.core.config import AppSettings
+from app.imaging.encode import base64_to_image
 from app.vector import QdrantStore
 from tests.fakes import FakeEmbedder
 
@@ -29,6 +30,10 @@ def test_index_creates_collection_and_points(
     assert memory_store.exists()
     assert memory_store.vector_size() == 8
     assert memory_store.count() == 2
+    payload = memory_store.search([1.0] * 8, limit=1)[0].payload
+    assert "image_base64" not in payload
+    assert str(payload["prompt_data_uri"]).startswith("data:image/jpeg;base64,")
+    assert max(base64_to_image(str(payload["prompt_data_uri"])).size) <= 768
     assert "indexed pages 1-2" in capsys.readouterr().out
 
 

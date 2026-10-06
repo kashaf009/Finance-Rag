@@ -131,6 +131,37 @@ def test_search_and_unprepared_citations_share_the_chat_image_cache() -> None:
     assert result.citations == citations == hits
 
 
+def test_prepared_payload_images_skip_prompt_reencoding() -> None:
+    page = _page(1, 0.9)
+    encoded = str(page.payload.pop("image_base64"))
+    prompt_uri = prompt_images.to_prompt_data_uri(encoded)
+    page.payload["prompt_data_uri"] = prompt_uri
+    deps = _deps(
+        FakeLLM(["YES", "SUPPORTED"]),
+        FakeLLM(["Net income was 37.7 billion. [p1]"]),
+        [page],
+    )
+    service = RagService(deps=deps)
+
+    with (
+        patch.object(prompt_images, "base64_to_image", side_effect=AssertionError("decoded twice")),
+        patch.object(
+            prompt_images, "image_to_jpeg_bytes", side_effect=AssertionError("encoded twice")
+        ),
+    ):
+        search_hits = service.search("net income", limit=1)
+        result = service.answer("What was net income?")
+
+    assert search_hits[0].image == prompt_uri
+    assert result.citations[0].image == prompt_uri
+    assert [
+        block["image_url"]["url"]
+        for call in deps.answer_llm.calls
+        for block in call[1].content
+        if block["type"] == "image_url"
+    ] == [prompt_uri]
+
+
 def test_query_rewrites_reuse_images_for_overlapping_retrievals() -> None:
     deps = _deps(
         FakeLLM(["NO", "broader query", "NO", "another query", "YES", "SUPPORTED"]),
