@@ -366,13 +366,16 @@ describe('sending a question', () => {
     vi.spyOn(performance, 'now').mockImplementation(() => now)
     await user.type(panel().getByRole('textbox'), 'total assets?')
     await user.click(panel().getByRole('button', { name: /^Ask$/ }))
-    const thinking = await screen.findByTestId('chat-thinking')
+    await screen.findByTestId('chat-thinking')
     const clockTimer = intervals.mock.results[intervals.mock.calls.findIndex((call) => call[1] === 100)].value
-    expect(within(thinking).getByText('0:00')).toBeInTheDocument()
+    const clock = screen.getByTestId('chat-elapsed')
+    expect(clock).toHaveTextContent('0:00')
+    expect(screen.getByTestId('chat-stream').contains(clock)).toBe(false)
+    expect(clock.closest('[aria-live]')).toBeNull()
     const parseCount = parseMarkers.mock.calls.length
     now = 2500
     act(() => vi.advanceTimersByTime(2500))
-    expect(within(thinking).getByText('0:02')).toBeInTheDocument()
+    expect(clock).toHaveTextContent('0:02')
     expect(parseMarkers).toHaveBeenCalledTimes(parseCount)
 
     stream.send({ type: 'complete', response: REAL_ANSWER })

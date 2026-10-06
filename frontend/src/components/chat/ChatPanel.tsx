@@ -19,7 +19,11 @@ function Elapsed() {
     const id = setInterval(() => setMs(performance.now() - t0), 100)
     return () => clearInterval(id)
   }, [])
-  return <span className="text-ivory/40 ml-auto tabular-nums">{formatClock(ms)}</span>
+  return (
+    <span data-testid="chat-elapsed" className="text-ivory/40 tabular-nums">
+      {formatClock(ms)}
+    </span>
+  )
 }
 
 function formatClock(ms: number): string {
@@ -119,6 +123,12 @@ export function ChatPanel({ className = '' }: { className?: string }) {
           </div>
         </div>
         <div className="flex items-center space-x-4 text-ivory/60">
+          {pending ? (
+            <span className="flex items-center gap-1.5 text-[11px]">
+              <span className="text-ivory/40">Elapsed:</span>
+              <Elapsed />
+            </span>
+          ) : null}
           <span className="text-[11px]">
             Last answer:{' '}
             <strong className="text-gold font-normal">
@@ -295,7 +305,6 @@ const Turn = memo(function Turn({ turn }: { turn: ChatTurn }) {
           <div className="flex items-center gap-2 text-[11px] font-mono text-gold">
             <span className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse" aria-hidden />
             <span aria-live="polite">{latest?.message ?? 'Running the retrieval pipeline'}</span>
-            <Elapsed />
           </div>
           <StageProgress progress={turn.progress} />
         </div>
