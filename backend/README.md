@@ -53,6 +53,10 @@ uv run python -m app.cli serve            # http://127.0.0.1:8000, docs at /docs
 
 The server binds to `127.0.0.1` and has **no authentication**; do not expose it publicly.
 
+Responses larger than 500 bytes are gzip-compressed when the client advertises
+`Accept-Encoding: gzip`. Server-sent events from `/chat/stream` are explicitly
+excluded so stage frames remain incremental instead of being buffered.
+
 ### `GET /health`
 
 ```bash

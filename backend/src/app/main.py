@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.api.deps import get_embedder_dep, get_rag_service, get_store, reset_deps
 from app.api.routes import router
@@ -60,6 +61,10 @@ def create_app() -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+    # Starlette's default excluded content types include text/event-stream.
+    # Keeping that default is essential: compressing SSE would buffer frames
+    # and defeat the incremental chat progress channel.
+    app.add_middleware(GZipMiddleware, minimum_size=500)
     app.include_router(router)
     return app
 
