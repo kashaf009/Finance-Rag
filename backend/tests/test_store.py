@@ -73,6 +73,23 @@ def test_ensure_collection_creates() -> None:
     assert store.vector_size() == DIM
 
 
+def test_collection_metadata_reads_all_display_fields() -> None:
+    store = make_store()
+    store.ensure_collection(dim=DIM)
+    store.upsert([make_point(1, [1.0, 0.0, 0.0, 0.0])])
+
+    metadata = store.collection_metadata()
+
+    assert metadata is not None
+    assert metadata.points == 1
+    assert metadata.vector_size == DIM
+    assert metadata.distance == "Cosine"
+
+
+def test_collection_metadata_reports_missing_collection() -> None:
+    assert make_store().collection_metadata() is None
+
+
 def test_ensure_collection_is_idempotent() -> None:
     store = make_store()
     store.ensure_collection(dim=DIM)

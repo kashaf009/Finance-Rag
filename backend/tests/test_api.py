@@ -4,11 +4,14 @@ import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.api.deps import get_rag_service, get_store
+from app.api.routes import reset_document_pages_cache
 from app.core.config import get_settings, reset_settings
 from app.imaging.encode import image_to_base64
 from app.main import create_app
@@ -104,7 +107,8 @@ def client_with_service(client: TestClient, service: StubService) -> TestClient:
 
 def test_health_reports_ok_when_collection_exists(client: TestClient) -> None:
     app = client.app
-    app.dependency_overrides[get_store] = lambda: FakeStore([FakeHit(0.9, {})])
+    store = FakeStore([FakeHit(0.9, {})])
+    app.dependency_overrides[get_store] = lambda: store
     response = client.get("/health")
     assert response.status_code == 200
     body = response.json()
@@ -112,6 +116,7 @@ def test_health_reports_ok_when_collection_exists(client: TestClient) -> None:
     assert body["collection_ready"] is True
     assert body["llm_model"]
     assert body["vector_size"] == 1024
+    assert store.collection_metadata_calls == 1
 
 
 def test_health_is_degraded_when_collection_missing(client: TestClient) -> None:
@@ -128,7 +133,7 @@ def test_health_survives_store_failure(client: TestClient) -> None:
     class BrokenStore:
         collection = "finance_pages"
 
-        def exists(self) -> bool:
+        def collection_metadata(self) -> None:
             raise RuntimeError("connection refused")
 
     client.app.dependency_overrides[get_store] = BrokenStore
@@ -216,17 +221,20 @@ def test_select_llm_provider_rejects_name_without_key(monkeypatch, client: TestC
 
 
 def test_collections_returns_metadata(client: TestClient) -> None:
-    client.app.dependency_overrides[get_store] = lambda: FakeStore([FakeHit(0.9, {})])
+    store = FakeStore([FakeHit(0.9, {})])
+    client.app.dependency_overrides[get_store] = lambda: store
     response = client.get("/collections")
     assert response.status_code == 200
     body = response.json()
     assert body["exists"] is True
     assert body["points"] == 1
     assert body["distance"] == "Cosine"
+    assert store.collection_metadata_calls == 1
 
 
 def test_collections_reports_missing_collection(client: TestClient) -> None:
-    client.app.dependency_overrides[get_store] = lambda: FakeStore([])
+    store = FakeStore([])
+    client.app.dependency_overrides[get_store] = lambda: store
     response = client.get("/collections")
     assert response.status_code == 200
     assert response.json() == {
@@ -236,6 +244,7 @@ def test_collections_reports_missing_collection(client: TestClient) -> None:
         "points": None,
         "distance": None,
     }
+    assert store.collection_metadata_calls == 1
 
 
 def test_search_returns_citations(client_with_service: TestClient, service: StubService) -> None:
@@ -499,6 +508,21 @@ def test_document_pages_reports_the_renders_on_disk(
     assert body["pdf_filename"] == f"{DOC_ID}.pdf"
     # Read from the render itself, not a constant.
     assert (body["page_width"], body["page_height"]) == (120, 165)
+
+
+def test_document_pages_caches_inventory_until_invalidated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    doc_dir = _seed_ingest(tmp_path, page_count=1)
+    with _client_for_ingest(monkeypatch, tmp_path) as client:
+        with patch("app.api.routes.Image.open", wraps=Image.open) as open_image:
+            assert client.get("/document/pages").json()["page_count"] == 1
+            (doc_dir / "page_0002.jpg").write_bytes((doc_dir / "page_0001.jpg").read_bytes())
+            assert client.get("/document/pages").json()["page_count"] == 1
+        assert open_image.call_count == 1
+
+        reset_document_pages_cache()
+        assert client.get("/document/pages").json()["page_count"] == 2
 
 
 def test_document_page_serves_the_file_verbatim(

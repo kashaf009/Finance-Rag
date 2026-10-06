@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 from PIL import Image
 
+from app.vector import CollectionMetadata
+
 
 class FakeEmbedder:
     def __init__(self, dim: int = 8) -> None:
@@ -78,6 +80,7 @@ class FakeStore:
     def __init__(self, pages: Sequence[FakeHit] | None = None) -> None:
         self.pages = list(pages or [])
         self.queries: list[list[float]] = []
+        self.collection_metadata_calls = 0
         self.collection = "fake_pages"
 
     def search(self, vector: list[float], *, limit: int) -> list[FakeHit]:
@@ -92,3 +95,9 @@ class FakeStore:
 
     def vector_size(self) -> int:
         return 1024
+
+    def collection_metadata(self) -> CollectionMetadata | None:
+        self.collection_metadata_calls += 1
+        if not self.pages:
+            return None
+        return CollectionMetadata(points=len(self.pages), vector_size=1024, distance="Cosine")

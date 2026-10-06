@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as rest
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from app.core.config import AppSettings, get_settings
 from app.core.logging import get_logger
@@ -25,6 +26,13 @@ class VectorPoint:
     id: str
     vector: list[float]
     payload: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class CollectionMetadata:
+    points: int | None
+    vector_size: int | None
+    distance: str | None
 
 
 def page_point_id(doc_id: str, page_number: int) -> str:
@@ -77,6 +85,29 @@ class QdrantStore:
 
     def exists(self) -> bool:
         return self.client.collection_exists(self.collection)
+
+    def collection_metadata(self) -> CollectionMetadata | None:
+        """Read collection existence and display metadata in one request."""
+        try:
+            info = self.client.get_collection(self.collection)
+        except UnexpectedResponse as exc:
+            if exc.status_code == 404:
+                return None
+            raise
+        except ValueError as exc:
+            # The local in-memory Qdrant client reports a missing collection
+            # as ValueError rather than UnexpectedResponse.
+            if "not found" in str(exc).lower():
+                return None
+            raise
+
+        vectors = info.config.params.vectors
+        distance = getattr(vectors, "distance", None)
+        return CollectionMetadata(
+            points=info.points_count,
+            vector_size=getattr(vectors, "size", None),
+            distance=str(distance) if distance is not None else None,
+        )
 
     def vector_size(self) -> int | None:
         vectors = self.client.get_collection(self.collection).config.params.vectors

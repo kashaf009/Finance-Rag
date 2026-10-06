@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
@@ -75,10 +76,11 @@ def health(settings: SettingsDep, store: StoreDep) -> HealthResponse:
     points: int | None = None
     vector_size: int | None = None
     try:
-        ready = store.exists()
-        if ready:
-            points = store.count()
-            vector_size = store.vector_size()
+        metadata = store.collection_metadata()
+        if metadata is not None:
+            ready = True
+            points = metadata.points
+            vector_size = metadata.vector_size
     except Exception:
         ready = False
 
@@ -124,7 +126,8 @@ def select_llm_provider(payload: LLMProviderRequest, settings: SettingsDep) -> L
 
 @router.get("/collections", response_model=CollectionInfo)
 def collections(store: StoreDep) -> CollectionInfo:
-    if not store.exists():
+    metadata = store.collection_metadata()
+    if metadata is None:
         return CollectionInfo(
             name=store.collection,
             exists=False,
@@ -135,9 +138,9 @@ def collections(store: StoreDep) -> CollectionInfo:
     return CollectionInfo(
         name=store.collection,
         exists=True,
-        vector_size=store.vector_size(),
-        points=store.count(),
-        distance="Cosine",
+        vector_size=metadata.vector_size,
+        points=metadata.points,
+        distance=metadata.distance,
     )
 
 
@@ -198,12 +201,12 @@ def chat_stream(payload: ChatRequest, service: ServiceDep) -> StreamingResponse:
     )
 
 
-def _page_dir(settings: AppSettings) -> Path | None:
+def _page_dir(storage_dir: Path) -> Path | None:
     """The one document's render directory, or None if the ingest has not run.
 
     Only one document is indexed, so a single directory is the whole story.
     """
-    root = settings.storage_dir
+    root = storage_dir
     if not root.is_dir():
         return None
     for entry in sorted(root.iterdir()):
@@ -225,14 +228,10 @@ def _page_path(doc_dir: Path, page_number: int) -> Path | None:
     return path if path.is_file() else None
 
 
-@router.get("/document/pages", response_model=DocumentPagesResponse)
-def document_pages(settings: SettingsDep) -> DocumentPagesResponse:
-    """List the page renders the ingest already wrote.
-
-    Degrades instead of raising, like /health: a missing ingest is a real state
-    the client must be able to render honestly, not a 500.
-    """
-    doc_dir = _page_dir(settings)
+@lru_cache(maxsize=8)
+def _cached_document_pages(storage_dir: Path, docs_dir: Path) -> DocumentPagesResponse:
+    """Build the on-disk inventory once per configured document location."""
+    doc_dir = _page_dir(storage_dir)
     if doc_dir is None:
         return DocumentPagesResponse(
             doc_id=None,
@@ -244,7 +243,7 @@ def document_pages(settings: SettingsDep) -> DocumentPagesResponse:
         )
 
     page_files = sorted(doc_dir.glob("page_*.jpg"))
-    pdf_path = settings.docs_dir / f"{doc_dir.name}.pdf"
+    pdf_path = docs_dir / f"{doc_dir.name}.pdf"
     has_pdf = pdf_path.is_file()
 
     width = height = None
@@ -262,6 +261,21 @@ def document_pages(settings: SettingsDep) -> DocumentPagesResponse:
     )
 
 
+def reset_document_pages_cache() -> None:
+    """Invalidate the inventory after an ingest or when the app restarts."""
+    _cached_document_pages.cache_clear()
+
+
+@router.get("/document/pages", response_model=DocumentPagesResponse)
+def document_pages(settings: SettingsDep) -> DocumentPagesResponse:
+    """List the page renders the ingest already wrote.
+
+    Degrades instead of raising, like /health: a missing ingest is a real state
+    the client must be able to render honestly, not a 500.
+    """
+    return _cached_document_pages(settings.storage_dir, settings.docs_dir)
+
+
 @router.get("/document/page/{page_number}", response_class=FileResponse)
 def document_page(page_number: int, settings: SettingsDep) -> FileResponse:
     """Serve one page render at full resolution.
@@ -272,7 +286,7 @@ def document_page(page_number: int, settings: SettingsDep) -> FileResponse:
     `/chat`. Legacy points without that field still fall back to the serve-time
     `to_prompt_data_uri` conversion until the collection is re-indexed.
     """
-    doc_dir = _page_dir(settings)
+    doc_dir = _page_dir(settings.storage_dir)
     if doc_dir is None:
         raise HTTPException(status_code=404, detail="No rendered pages are available on disk.")
     path = _page_path(doc_dir, page_number)
