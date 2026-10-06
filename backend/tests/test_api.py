@@ -271,6 +271,21 @@ def test_chat_returns_answer_and_trace(
     assert body["trace"] == [{"node": "retrieve"}]
 
 
+def test_large_regular_response_is_gzipped(
+    client_with_service: TestClient, service: StubService
+) -> None:
+    service.result = _result(answer="Net income was 37.7 billion. " + "detail " * 200)
+    response = client_with_service.post(
+        "/chat",
+        json={"question": "What was net income?"},
+        headers={"Accept-Encoding": "gzip"},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-encoding"] == "gzip"
+    assert "accept-encoding" in response.headers["vary"].lower()
+    assert response.json()["answer"].startswith("Net income was 37.7 billion.")
+
+
 def test_chat_passes_top_k(client_with_service: TestClient, service: StubService) -> None:
     client_with_service.post("/chat", json={"question": "q", "top_k": 2})
     assert service.answered == [("q", 2)]
@@ -295,6 +310,7 @@ def test_chat_stream_emits_stage_and_complete_sse_events(
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
+    assert "content-encoding" not in response.headers
     assert response.headers["cache-control"] == "no-cache"
     assert service.streamed == [("q", 2)]
 
