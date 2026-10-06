@@ -5,7 +5,7 @@
  * required unless the backend declares a default.
  */
 
-/** schemas.py:11 CitationModel */
+/** Chat citation metadata; chat responses do not carry page images. */
 export interface Citation {
   /** Qdrant payload doc_id — the PDF filename stem, e.g. JPM_SE_Annual_2023_140 */
   doc_id: string
@@ -16,6 +16,10 @@ export interface Citation {
   page_number: number
   /** Cosine similarity from Qdrant */
   score: number
+}
+
+/** schemas.py:11 CitationModel — search results retain their preview image. */
+export interface SearchHit extends Citation {
   /** Full `data:image/jpeg;base64,...` URI. Use directly as an <img src>. */
   image: string
 }
@@ -29,7 +33,7 @@ export interface SearchRequest {
 /** schemas.py:18 SearchResponse */
 export interface SearchResponse {
   query: string
-  hits: Citation[]
+  hits: SearchHit[]
 }
 
 /** schemas.py:23 ChatRequest — question 1..2000 chars, top_k 1..20 (default null) */

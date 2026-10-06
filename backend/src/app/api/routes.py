@@ -11,6 +11,7 @@ from PIL import Image
 
 from app.api.deps import get_rag_service, get_settings_dep, get_store
 from app.api.schemas import (
+    ChatCitationModel,
     ChatRequest,
     ChatResponse,
     CitationModel,
@@ -51,6 +52,17 @@ def _citations(citations: object) -> list[CitationModel]:
     ]
 
 
+def _chat_citations(citations: object) -> list[ChatCitationModel]:
+    return [
+        ChatCitationModel(
+            doc_id=item.doc_id,
+            page_number=item.page_number,
+            score=item.score,
+        )
+        for item in citations  # type: ignore[union-attr]
+    ]
+
+
 def _chat_response(result: AnswerResult) -> ChatResponse:
     return ChatResponse(
         question=result.question,
@@ -59,7 +71,7 @@ def _chat_response(result: AnswerResult) -> ChatResponse:
         supported=result.supported,
         rewrites=result.rewrites,
         pages_considered=result.pages_considered,
-        citations=_citations(result.citations),
+        citations=_chat_citations(result.citations),
         trace=result.trace,
     )
 

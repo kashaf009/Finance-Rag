@@ -40,6 +40,15 @@ describe('fixtures match the backend contract', () => {
     for (const h of hits) expect(h.image).toMatch(/^data:image\/jpeg;base64,/)
   })
 
+  it('chat citations carry metadata without page images', () => {
+    const citations = (supportedChat as unknown as { citations: Record<string, unknown>[] }).citations
+    expect(citations.length).toBeGreaterThan(0)
+    for (const citation of citations) {
+      expect(citation).toEqual(expect.objectContaining({ doc_id: expect.any(String), page_number: expect.any(Number), score: expect.any(Number) }))
+      expect(citation).not.toHaveProperty('image')
+    }
+  })
+
   it('the refusal fixture is exactly the backend refusal contract', () => {
     const r = refusalChat as unknown as { answer: string; supported: boolean; citations: unknown[] }
     expect(r.supported).toBe(false)
