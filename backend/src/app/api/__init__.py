@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.api.deps import get_rag_service, get_settings_dep, get_store, reset_deps
 from app.api.routes import router
 from app.api.schemas import (
+    ChatCitationModel,
     ChatRequest,
     ChatResponse,
     CitationModel,
@@ -13,6 +14,7 @@ from app.api.schemas import (
 )
 
 __all__ = [
+    "ChatCitationModel",
     "ChatRequest",
     "ChatResponse",
     "CitationModel",

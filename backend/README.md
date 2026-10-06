@@ -132,10 +132,14 @@ curl -X POST http://127.0.0.1:8000/chat \
   "supported": true,
   "rewrites": 0,
   "pages_considered": 3,
-  "citations": [{ "doc_id": "...", "page_number": 86, "score": 0.531, "image": "data:image/jpeg;base64,..." }],
+  "citations": [{ "doc_id": "...", "page_number": 86, "score": 0.531 }],
   "trace": [{ "node": "retrieve", "query": "...", "hits": 3 }]
 }
 ```
+
+Chat citations intentionally contain page metadata only; `/search` retains its
+page image for the document preview, and full-resolution renders are available
+from `/document/page/{page_number}`.
 
 When the pipeline cannot ground an answer it returns the fixed refusal
 `I could not find the information in the indexed pages of this document.` with

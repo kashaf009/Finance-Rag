@@ -15,6 +15,14 @@ class CitationModel(BaseModel):
     image: str
 
 
+class ChatCitationModel(BaseModel):
+    """Citation metadata for chat; page images are not rendered there."""
+
+    doc_id: str
+    page_number: int
+    score: float
+
+
 class SearchResponse(BaseModel):
     query: str
     hits: list[CitationModel]
@@ -32,7 +40,7 @@ class ChatResponse(BaseModel):
     supported: bool
     rewrites: int
     pages_considered: int
-    citations: list[CitationModel]
+    citations: list[ChatCitationModel]
     trace: list[dict[str, object]]
 
 

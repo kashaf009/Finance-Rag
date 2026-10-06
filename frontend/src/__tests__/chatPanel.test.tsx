@@ -25,9 +25,9 @@ const REAL_ANSWER: ChatResponse = {
   rewrites: 0,
   pages_considered: 5,
   citations: [
-    { doc_id: 'JPM_SE_Annual_2023_140', page_number: 102, score: 0.4998, image: 'data:image/jpeg;base64,AAA' },
-    { doc_id: 'JPM_SE_Annual_2023_140', page_number: 2, score: 0.5051, image: 'data:image/jpeg;base64,BBB' },
-    { doc_id: 'JPM_SE_Annual_2023_140', page_number: 30, score: 0.5183, image: 'data:image/jpeg;base64,CCC' },
+    { doc_id: 'JPM_SE_Annual_2023_140', page_number: 102, score: 0.4998 },
+    { doc_id: 'JPM_SE_Annual_2023_140', page_number: 2, score: 0.5051 },
+    { doc_id: 'JPM_SE_Annual_2023_140', page_number: 30, score: 0.5183 },
   ],
   trace: [
     { node: 'retrieve', ok: true, ms: 182 },

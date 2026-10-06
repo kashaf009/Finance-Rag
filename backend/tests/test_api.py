@@ -277,6 +277,7 @@ def test_chat_returns_answer_and_trace(
     assert body["supported"] is True
     assert body["rewrites"] == 0
     assert body["citations"][0]["page_number"] == 12
+    assert set(body["citations"][0]) == {"doc_id", "page_number", "score"}
     assert body["trace"] == [{"node": "retrieve"}]
 
 
@@ -343,7 +344,6 @@ def test_chat_stream_emits_stage_and_complete_sse_events(
                 "doc_id": "doc",
                 "page_number": 12,
                 "score": 0.91,
-                "image": "data:image/jpeg;base64,AAAA",
             }
         ],
         "trace": [{"node": "retrieve"}],
@@ -396,8 +396,8 @@ def test_prepared_prompt_images_preserve_the_chat_api_contract(
         "trace",
     }
     assert body["supported"] is True
-    assert set(body["citations"][0]) == {"doc_id", "page_number", "score", "image"}
-    assert body["citations"][0]["image"].startswith("data:image/jpeg;base64,")
+    assert set(body["citations"][0]) == {"doc_id", "page_number", "score"}
+    assert "image" not in body["citations"][0]
     assert "prompt_data_uri" not in response.text
 
 
