@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { lazy, memo, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertCircle, Check, Cpu, Loader2, RotateCcw, Send, Square } from 'lucide-react'
 
@@ -9,8 +9,11 @@ import { formatPage, formatScore } from '@/lib/citations'
 import { DOCUMENT } from '@/lib/document'
 import { parseTrace, traceHeadline, type TraceStep } from '@/lib/trace'
 import { LIMITS } from '@/types/api'
-import { AnswerMarkdown } from '@/components/chat/AnswerMarkdown'
 import { ProviderSelect } from '@/components/chat/ProviderSelect'
+
+const LazyAnswerMarkdown = lazy(() =>
+  import('@/components/chat/AnswerMarkdown').then(({ AnswerMarkdown }) => ({ default: AnswerMarkdown })),
+)
 
 /** Mounted only for a pending turn; timer ticks stay inside this leaf. */
 function Elapsed() {
@@ -361,7 +364,15 @@ const Turn = memo(function Turn({ turn }: { turn: ChatTurn }) {
         ) : null}
 
         <div className="bg-noir p-5 rounded-2xl border border-white/10 text-ivory">
-          <AnswerMarkdown answer={res.answer} citations={res.citations} />
+          <Suspense
+            fallback={
+              <div className="prose-chat" aria-busy="true">
+                {res.answer}
+              </div>
+            }
+          >
+            <LazyAnswerMarkdown answer={res.answer} citations={res.citations} />
+          </Suspense>
         </div>
 
         {hasTimings ? (
