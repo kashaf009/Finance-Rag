@@ -107,7 +107,8 @@ def client_with_service(client: TestClient, service: StubService) -> TestClient:
 
 def test_health_reports_ok_when_collection_exists(client: TestClient) -> None:
     app = client.app
-    app.dependency_overrides[get_store] = lambda: FakeStore([FakeHit(0.9, {})])
+    store = FakeStore([FakeHit(0.9, {})])
+    app.dependency_overrides[get_store] = lambda: store
     response = client.get("/health")
     assert response.status_code == 200
     body = response.json()
@@ -115,6 +116,7 @@ def test_health_reports_ok_when_collection_exists(client: TestClient) -> None:
     assert body["collection_ready"] is True
     assert body["llm_model"]
     assert body["vector_size"] == 1024
+    assert store.collection_metadata_calls == 1
 
 
 def test_health_is_degraded_when_collection_missing(client: TestClient) -> None:
@@ -131,7 +133,7 @@ def test_health_survives_store_failure(client: TestClient) -> None:
     class BrokenStore:
         collection = "finance_pages"
 
-        def exists(self) -> bool:
+        def collection_metadata(self) -> None:
             raise RuntimeError("connection refused")
 
     client.app.dependency_overrides[get_store] = BrokenStore
@@ -219,17 +221,20 @@ def test_select_llm_provider_rejects_name_without_key(monkeypatch, client: TestC
 
 
 def test_collections_returns_metadata(client: TestClient) -> None:
-    client.app.dependency_overrides[get_store] = lambda: FakeStore([FakeHit(0.9, {})])
+    store = FakeStore([FakeHit(0.9, {})])
+    client.app.dependency_overrides[get_store] = lambda: store
     response = client.get("/collections")
     assert response.status_code == 200
     body = response.json()
     assert body["exists"] is True
     assert body["points"] == 1
     assert body["distance"] == "Cosine"
+    assert store.collection_metadata_calls == 1
 
 
 def test_collections_reports_missing_collection(client: TestClient) -> None:
-    client.app.dependency_overrides[get_store] = lambda: FakeStore([])
+    store = FakeStore([])
+    client.app.dependency_overrides[get_store] = lambda: store
     response = client.get("/collections")
     assert response.status_code == 200
     assert response.json() == {
@@ -239,6 +244,7 @@ def test_collections_reports_missing_collection(client: TestClient) -> None:
         "points": None,
         "distance": None,
     }
+    assert store.collection_metadata_calls == 1
 
 
 def test_search_returns_citations(client_with_service: TestClient, service: StubService) -> None:

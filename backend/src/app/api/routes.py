@@ -76,10 +76,11 @@ def health(settings: SettingsDep, store: StoreDep) -> HealthResponse:
     points: int | None = None
     vector_size: int | None = None
     try:
-        ready = store.exists()
-        if ready:
-            points = store.count()
-            vector_size = store.vector_size()
+        metadata = store.collection_metadata()
+        if metadata is not None:
+            ready = True
+            points = metadata.points
+            vector_size = metadata.vector_size
     except Exception:
         ready = False
 
@@ -125,7 +126,8 @@ def select_llm_provider(payload: LLMProviderRequest, settings: SettingsDep) -> L
 
 @router.get("/collections", response_model=CollectionInfo)
 def collections(store: StoreDep) -> CollectionInfo:
-    if not store.exists():
+    metadata = store.collection_metadata()
+    if metadata is None:
         return CollectionInfo(
             name=store.collection,
             exists=False,
@@ -136,9 +138,9 @@ def collections(store: StoreDep) -> CollectionInfo:
     return CollectionInfo(
         name=store.collection,
         exists=True,
-        vector_size=store.vector_size(),
-        points=store.count(),
-        distance="Cosine",
+        vector_size=metadata.vector_size,
+        points=metadata.points,
+        distance=metadata.distance,
     )
 
 

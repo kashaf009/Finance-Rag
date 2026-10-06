@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.vector.store import (
     PAGE_ID_NAMESPACE,
+    CollectionMetadata,
     QdrantStore,
     VectorPoint,
     VectorStoreError,
@@ -12,6 +13,7 @@ from app.vector.store import (
 
 __all__ = [
     "PAGE_ID_NAMESPACE",
+    "CollectionMetadata",
     "QdrantStore",
     "VectorPoint",
     "VectorStoreError",
