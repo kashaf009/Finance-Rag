@@ -15,7 +15,7 @@ from app.core.logging import setup_logging
 from app.embed import get_embedder
 from app.imaging.encode import base64_to_bytes, bytes_to_base64, image_to_jpeg_bytes
 from app.imaging.normalize import normalize_page
-from app.llm import LLMConfigError
+from app.llm import LLMConfigError, image_to_prompt_data_uri
 from app.models import PageArtifact, RenderedPage
 from app.rag import RagError, RagService
 from app.render.pdf import iter_page_chunks, page_count
@@ -235,7 +235,10 @@ def _index(args: argparse.Namespace) -> int:
                 id=page_point_id(doc_id, page_number),
                 vector=vector,
                 payload=page_payload(
-                    _artifact(page_number, image, payload), doc_id=doc_id, source=str(args.pdf)
+                    _artifact(page_number, image, payload),
+                    doc_id=doc_id,
+                    prompt_data_uri=image_to_prompt_data_uri(image, settings=cfg),
+                    source=str(args.pdf),
                 ),
             )
             for (page_number, image, payload), vector in zip(rendered, vectors, strict=True)
@@ -268,7 +271,8 @@ def _search(args: argparse.Namespace) -> int:
             "page_number": (hit.payload or {}).get("page_number"),
             "width": (hit.payload or {}).get("width"),
             "height": (hit.payload or {}).get("height"),
-            "image_base64": (hit.payload or {}).get("image_base64"),
+            "image_base64": (hit.payload or {}).get("prompt_data_uri")
+            or (hit.payload or {}).get("image_base64"),
         }
         for hit in hits
     ]

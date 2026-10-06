@@ -266,12 +266,11 @@ def document_pages(settings: SettingsDep) -> DocumentPagesResponse:
 def document_page(page_number: int, settings: SettingsDep) -> FileResponse:
     """Serve one page render at full resolution.
 
-    Read from disk rather than the Qdrant payload. The stored payload is
-    already the full-resolution file — byte-identical to what the ingest
-    wrote — so the real reason to prefer this route is that it does not pay
-    the serve-time downscale. `/search` and `/chat` run every hit through
-    `to_prompt_data_uri`, which resizes to llm_image_max_edge and returns
-    559x768 here; nothing in the ingest path downscales.
+    Read from disk rather than the Qdrant payload. The ingest keeps the
+    full-resolution render here for the document reader, while newly indexed
+    Qdrant points store only the prompt-sized data URI used by `/search` and
+    `/chat`. Legacy points without that field still fall back to the serve-time
+    `to_prompt_data_uri` conversion until the collection is re-indexed.
     """
     doc_dir = _page_dir(settings)
     if doc_dir is None:

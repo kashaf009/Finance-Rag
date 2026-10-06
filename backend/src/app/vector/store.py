@@ -32,15 +32,24 @@ def page_point_id(doc_id: str, page_number: int) -> str:
 
 
 def page_payload(
-    artifact: PageArtifact, *, doc_id: str, source: str | None = None
+    artifact: PageArtifact,
+    *,
+    doc_id: str,
+    prompt_data_uri: str,
+    source: str | None = None,
 ) -> dict[str, object]:
+    """Build the compact payload stored for a newly indexed page.
+
+    The full-resolution artifact remains on disk for the document reader, but
+    Qdrant only needs the prompt-sized image that chat and search send onward.
+    """
     payload: dict[str, object] = {
         "doc_id": doc_id,
         "page_number": artifact.page_number,
         "mime": artifact.mime,
         "width": artifact.width,
         "height": artifact.height,
-        "image_base64": artifact.base64,
+        "prompt_data_uri": prompt_data_uri,
     }
     if source is not None:
         payload["source"] = source

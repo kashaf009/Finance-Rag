@@ -66,12 +66,14 @@ def _trace(state: RAGState, node: str, **data: object) -> list[dict[str, object]
 def _image_blocks(pages: list[RetrievedPage], settings: AppSettings) -> list[dict[str, object]]:
     blocks: list[dict[str, object]] = []
     for page in pages:
-        uri = page.get("prompt_data_uri") or to_prompt_data_uri(
-            page["image_base64"],
-            doc_id=page["doc_id"],
-            page_number=page["page_number"],
-            settings=settings,
-        )
+        uri = page.get("prompt_data_uri")
+        if not uri:
+            uri = to_prompt_data_uri(
+                page.get("image_base64", ""),
+                doc_id=page["doc_id"],
+                page_number=page["page_number"],
+                settings=settings,
+            )
         blocks.append(
             {
                 "type": "text",
@@ -97,6 +99,7 @@ def _page_fields(hit: Any) -> RetrievedPage:
         page_number=int(payload.get("page_number") or 0),
         score=float(hit.score),
         image_base64=str(payload.get("image_base64") or ""),
+        prompt_data_uri=str(payload.get("prompt_data_uri") or ""),
         width=int(payload.get("width") or 0),
         height=int(payload.get("height") or 0),
         source=str(payload.get("source") or ""),
@@ -112,12 +115,13 @@ def retrieve(state: RAGState, deps: RagDeps) -> RAGState:
     # Prepare only pages that a downstream LLM can use; a larger top_k should
     # not encode images that will never appear in a prompt or citation.
     for page in pages[: max(MAX_GRADER_PAGES, deps.settings.llm_max_pages)]:
-        page["prompt_data_uri"] = to_prompt_data_uri(
-            page["image_base64"],
-            doc_id=page["doc_id"],
-            page_number=page["page_number"],
-            settings=deps.settings,
-        )
+        if not page.get("prompt_data_uri"):
+            page["prompt_data_uri"] = to_prompt_data_uri(
+                page.get("image_base64", ""),
+                doc_id=page["doc_id"],
+                page_number=page["page_number"],
+                settings=deps.settings,
+            )
     return {
         **state,
         "query": query,

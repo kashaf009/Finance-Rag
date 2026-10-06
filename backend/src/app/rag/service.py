@@ -123,7 +123,7 @@ def build_citations(
             score=page["score"],
             image=page.get("prompt_data_uri")
             or to_prompt_data_uri(
-                page["image_base64"],
+                page.get("image_base64", ""),
                 doc_id=page["doc_id"],
                 page_number=page["page_number"],
                 settings=settings,
@@ -163,7 +163,8 @@ class RagService:
                     doc_id=doc_id,
                     page_number=page_number,
                     score=float(hit.score),
-                    image=to_prompt_data_uri(
+                    image=str(payload.get("prompt_data_uri") or "")
+                    or to_prompt_data_uri(
                         str(payload.get("image_base64") or ""),
                         doc_id=doc_id,
                         page_number=page_number,

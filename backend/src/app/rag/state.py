@@ -7,7 +7,7 @@ class RetrievedPage(TypedDict):
     doc_id: str
     page_number: int
     score: float
-    image_base64: str
+    image_base64: NotRequired[str]
     prompt_data_uri: NotRequired[str]
     width: int
     height: int

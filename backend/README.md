@@ -89,7 +89,7 @@ Dependency caches are cleared at shutdown.
 
 ### `POST /search`
 
-Pure vector retrieval, no generation. Each hit carries a JPEG data URI, downscaled at serve time to `llm_image_max_edge` (559x768 for this document). The Qdrant payload itself holds the full-resolution 1024x1408 file.
+Pure vector retrieval, no generation. Each hit carries the prompt-sized JPEG data URI prepared during indexing at `llm_image_max_edge` (559x768 for this document). The full-resolution 1024x1408 render remains on disk for the document reader; Qdrant no longer transfers that larger image. Re-index the collection with the existing `index` command after upgrading.
 
 Search and chat share a process-local LRU cache of up to 256 prompt-image variants.
 The cache keys include document/page identity, source image content, and encoding

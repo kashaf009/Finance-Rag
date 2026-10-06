@@ -26,15 +26,39 @@ def to_prompt_data_uri(
     return _encode_prompt_data_uri(encoded, edge, jpeg_quality)
 
 
+def image_to_prompt_data_uri(
+    image: Image.Image,
+    *,
+    max_edge: int | None = None,
+    quality: int | None = None,
+    settings: AppSettings | None = None,
+) -> str:
+    """Encode an already decoded page image at the prompt settings.
+
+    Indexing already has the normalized PIL image in memory. Using this path
+    avoids the full-image base64 decode that ``to_prompt_data_uri`` needs for
+    images read from a Qdrant payload.
+    """
+    cfg = settings or get_settings()
+    edge = cfg.llm_image_max_edge if max_edge is None else max_edge
+    jpeg_quality = cfg.llm_image_quality if quality is None else quality
+    prepared = image.copy()
+    if edge > 0 and max(prepared.size) > edge:
+        prepared.thumbnail((edge, edge), Image.Resampling.LANCZOS)
+    return _image_to_prompt_data_uri(prepared, jpeg_quality)
+
+
 def _encode_prompt_data_uri(encoded: str, edge: int, quality: int) -> str:
     image = base64_to_image(encoded)
-    if edge > 0 and max(image.size) > edge:
-        image.thumbnail((edge, edge), Image.Resampling.LANCZOS)
-    payload = image_to_jpeg_bytes(
-        image,
-        quality=quality,
-        optimize=False,
-    )
+    return _image_to_prompt_data_uri(image, quality, max_edge=edge)
+
+
+def _image_to_prompt_data_uri(
+    image: Image.Image, quality: int, *, max_edge: int | None = None
+) -> str:
+    if max_edge is not None and max_edge > 0 and max(image.size) > max_edge:
+        image.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+    payload = image_to_jpeg_bytes(image, quality=quality, optimize=False)
     return bytes_to_base64(payload, data_uri=True)
 
 

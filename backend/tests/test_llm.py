@@ -25,6 +25,7 @@ from app.llm import (
     UTILITY,
     LLMConfigError,
     build_llm,
+    image_to_prompt_data_uri,
     is_refusal,
     provider_names,
     reset_llm_cache,
@@ -51,6 +52,15 @@ def test_prompt_image_is_downscaled_to_max_edge() -> None:
     image = base64_to_image(uri)
     assert max(image.size) <= get_settings().llm_image_max_edge
     assert base64.b64decode(payload)[:2] == b"\xff\xd8"
+
+
+def test_prompt_image_can_encode_a_decoded_page_without_base64_roundtrip() -> None:
+    image = Image.new("RGB", (1024, 1408), "white")
+    with patch.object(
+        prompt_images, "base64_to_image", side_effect=AssertionError("decoded twice")
+    ):
+        uri = image_to_prompt_data_uri(image)
+    assert max(base64_to_image(uri).size) <= get_settings().llm_image_max_edge
 
 
 def test_prompt_image_respects_explicit_max_edge() -> None:
