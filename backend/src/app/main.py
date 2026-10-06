@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 from app.api.deps import get_embedder_dep, get_rag_service, get_store, reset_deps
-from app.api.routes import router
+from app.api.routes import reset_document_pages_cache, router
 from app.core.config import get_settings
 from app.core.env import load_env
 from app.core.logging import get_logger, setup_logging
@@ -18,6 +18,7 @@ logger = get_logger("main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    reset_document_pages_cache()
     setup_logging(get_settings().log_level)
     try:
         store = get_store()
@@ -39,6 +40,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        reset_document_pages_cache()
         reset_deps()
 
 
