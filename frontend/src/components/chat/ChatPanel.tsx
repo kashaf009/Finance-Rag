@@ -7,6 +7,7 @@ import { useHealth } from '@/hooks/useHealth'
 import { formatLatency, provenanceLine, type ChatProgress, type ChatTurn } from '@/lib/chat'
 import { formatPage, formatScore } from '@/lib/citations'
 import { DOCUMENT } from '@/lib/document'
+import { parseTrace, traceHeadline, type TraceStep } from '@/lib/trace'
 import { LIMITS } from '@/types/api'
 import { AnswerMarkdown } from '@/components/chat/AnswerMarkdown'
 import { ProviderSelect } from '@/components/chat/ProviderSelect'
@@ -330,6 +331,8 @@ const Turn = memo(function Turn({ turn }: { turn: ChatTurn }) {
 
   const res = turn.response
   if (!res) return null
+  const trace = parseTrace(res.trace)
+  const hasTimings = trace.some((step) => step.ms != null)
 
   return (
     <div className="flex items-start space-x-3.5" data-testid="chat-answer">
@@ -360,6 +363,22 @@ const Turn = memo(function Turn({ turn }: { turn: ChatTurn }) {
         <div className="bg-noir p-5 rounded-2xl border border-white/10 text-ivory">
           <AnswerMarkdown answer={res.answer} citations={res.citations} />
         </div>
+
+        {hasTimings ? (
+          <div
+            className="rounded-xl border border-white/10 bg-noir/50 px-4 py-3"
+            data-testid="pipeline-timings"
+            aria-label="Pipeline timings"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] font-mono">
+              <span className="text-ivory/55 uppercase tracking-wider">Pipeline timings</span>
+              <span className="text-ivory/35" data-testid="trace-headline">
+                {traceHeadline(res, trace)}
+              </span>
+            </div>
+            <StageProgress progress={turn.progress} trace={trace} />
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono text-ivory/40">
           <span className={res.supported ? 'text-emerald-400/80' : 'text-gold/80'}>
@@ -402,7 +421,17 @@ function progressDetail(item: ChatProgress): string | null {
   return null
 }
 
-const StageProgress = memo(function StageProgress({ progress }: { progress: ChatProgress[] }) {
+function formatStageDuration(ms: number): string {
+  return `${Math.round(ms)} ms`
+}
+
+const StageProgress = memo(function StageProgress({
+  progress,
+  trace = [],
+}: {
+  progress: ChatProgress[]
+  trace?: TraceStep[]
+}) {
   return (
     <ol
       className="mt-3 space-y-1.5 border-l border-gold/25 pl-3"
@@ -411,6 +440,7 @@ const StageProgress = memo(function StageProgress({ progress }: { progress: Chat
     >
       {progress.map((item, index) => {
         const detail = progressDetail(item)
+        const duration = item.status === 'complete' ? trace[index]?.ms : null
         return (
           <li
             key={item.id}
@@ -428,6 +458,11 @@ const StageProgress = memo(function StageProgress({ progress }: { progress: Chat
               {STAGE_LABELS[item.stage]}
             </span>
             <span className="ml-2 text-ivory/35">{item.status === 'complete' ? 'done' : 'in progress'}</span>
+            {duration != null ? (
+              <span className="ml-2 text-gold/65" data-testid={`stage-duration-${index}`}>
+                {formatStageDuration(duration)}
+              </span>
+            ) : null}
             {detail ? <span className="mt-0.5 block truncate text-ivory/35">{detail}</span> : null}
           </li>
         )

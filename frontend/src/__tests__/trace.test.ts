@@ -26,6 +26,12 @@ describe('parseTrace — real supported trace (4 nodes)', () => {
     expect(steps[0].ok).toBeNull()
   })
 
+  it('preserves a non-negative backend duration in milliseconds', () => {
+    expect(parseTrace([{ node: 'retrieve', hits: 5, ms: 182 }])[0].ms).toBe(182)
+    expect(parseTrace([{ node: 'retrieve', hits: 5, ms: -1 }])[0].ms).toBeNull()
+    expect(parseTrace([{ node: 'retrieve', hits: 5, ms: '182' }])[0].ms).toBeNull()
+  })
+
   it('carries the grade verdict and reply', () => {
     expect(steps[1].ok).toBe(true)
     expect(steps[1].detail).toMatch(/net interest income/i)

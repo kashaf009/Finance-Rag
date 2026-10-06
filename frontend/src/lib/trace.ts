@@ -10,6 +10,8 @@ import type { ChatResponse } from '@/types/api'
  *   generate      { node, pages: int, outcome: "refusal" } | { ..., chars: int }
  *   self_check    { node, supported: bool, reason?: str } | { ..., reply: str }
  *
+ * Every graph node also carries `ms`, the measured wall-clock duration.
+ *
  * Note the grading node key is `grade`, NOT `grade_documents`. Everything here
  * is defensive: a malformed or unknown entry must never crash the chat UI.
  */
@@ -27,6 +29,8 @@ export interface TraceStep {
   node: TraceNode
   /** Verbatim `node` value when it was not one of the known names. */
   rawNode: string
+  /** Wall-clock duration reported by the backend, or null when unavailable. */
+  ms: number | null
   ok: boolean | null
   detail: string
   /** Short mono label for the collapsed view. */
@@ -47,6 +51,11 @@ function asString(v: unknown): string | null {
 
 function asNumber(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
+}
+
+function asMilliseconds(v: unknown): number | null {
+  const ms = asNumber(v)
+  return ms != null && ms >= 0 ? ms : null
 }
 
 function asBool(v: unknown): boolean | null {
@@ -74,7 +83,15 @@ function parseEntry(entry: Record<string, unknown>, index: number): TraceStep {
   const reply = asString(entry.reply)
   const query = asString(entry.query)
 
-  const step: TraceStep = { index, node, rawNode, ok: null, detail: '', label: rawNode }
+  const step: TraceStep = {
+    index,
+    node,
+    rawNode,
+    ms: asMilliseconds(entry.ms),
+    ok: null,
+    detail: '',
+    label: rawNode,
+  }
 
   switch (node) {
     case 'retrieve': {
@@ -143,6 +160,7 @@ export function parseTrace(trace: ChatResponse['trace'] | undefined | null): Tra
         index: out.length,
         node: 'unknown',
         rawNode: String(entry),
+        ms: null,
         ok: null,
         detail: '',
         label: 'unknown',

@@ -30,10 +30,10 @@ const REAL_ANSWER: ChatResponse = {
     { doc_id: 'JPM_SE_Annual_2023_140', page_number: 30, score: 0.5183, image: 'data:image/jpeg;base64,CCC' },
   ],
   trace: [
-    { node: 'retrieve', ok: true },
-    { node: 'grade', ok: true },
-    { node: 'generate', ok: true },
-    { node: 'self_check', ok: true },
+    { node: 'retrieve', ok: true, ms: 182 },
+    { node: 'grade', ok: true, ms: 941 },
+    { node: 'generate', ok: true, ms: 17432 },
+    { node: 'self_check', ok: true, ms: 2103 },
   ],
 }
 
@@ -234,6 +234,24 @@ describe('sending a question', () => {
     expect(answer.getByText('GROUNDED')).toBeInTheDocument()
     expect(answer.getByText('grounded · 5 pages · 0 rewrites')).toBeInTheDocument()
     expect(answer.getByText('€1,439,788 thousand')).toBeInTheDocument()
+  })
+
+  it('surfaces measured timings for each completed pipeline stage', async () => {
+    const user = userEvent.setup()
+    stub(okChat(REAL_ANSWER))
+    renderPanel()
+    await waitFor(() => expect(panel().getByText('gemini-2.5-flash')).toBeInTheDocument())
+
+    await user.type(panel().getByRole('textbox'), 'net interest income?')
+    await user.click(panel().getByRole('button', { name: /^Ask$/ }))
+    await waitFor(() => expect(screen.getByTestId('pipeline-timings')).toBeInTheDocument())
+
+    const timings = within(screen.getByTestId('pipeline-timings'))
+    expect(timings.getByTestId('trace-headline')).toHaveTextContent('4 steps · 0 rewrites · 5 pages')
+    expect(timings.getByTestId('stage-duration-0')).toHaveTextContent('182 ms')
+    expect(timings.getByTestId('stage-duration-1')).toHaveTextContent('941 ms')
+    expect(timings.getByTestId('stage-duration-2')).toHaveTextContent('17432 ms')
+    expect(timings.getByTestId('stage-duration-3')).toHaveTextContent('2103 ms')
   })
 
   it('shows live pipeline stages with a real clock and a cancel action while pending', async () => {
