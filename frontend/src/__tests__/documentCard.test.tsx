@@ -83,6 +83,7 @@ describe('document card identity', () => {
     stubEndpoints()
     renderApp()
 
+    await screen.findByTestId('document-card')
     const c = card()
     expect(c.getByText(/J\.P\. Morgan SE · Annual Report 2023/i)).toBeInTheDocument()
     // The size is what GET /document/pages measured, not a bundled constant.

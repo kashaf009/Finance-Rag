@@ -1,10 +1,23 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
-import { Landing } from '@/pages/Landing'
-import { Chat } from '@/pages/Chat'
-import { Document } from '@/pages/Document'
+
+const Landing = lazy(() => import('@/pages/Landing').then(({ Landing }) => ({ default: Landing })))
+const Chat = lazy(() => import('@/pages/Chat').then(({ Chat }) => ({ default: Chat })))
+const Document = lazy(() => import('@/pages/Document').then(({ Document }) => ({ default: Document })))
+
+function RouteFallback() {
+  return (
+    <div
+      className="flex flex-1 min-h-[50vh] items-center justify-center bg-noir text-ivory text-xs font-mono"
+      role="status"
+      aria-live="polite"
+    >
+      Loading route…
+    </div>
+  )
+}
 
 /** Routes change scroll position to top, except for plain #anchor links. */
 function ScrollToTop() {
@@ -31,12 +44,14 @@ export default function App() {
       <ScrollToTop />
       <Navbar />
       <main className="flex-1 flex flex-col">
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/chat" element={<Chat />} />
-          <Route path="/document" element={<Document />} />
-          <Route path="*" element={<Landing />} />
-        </Routes>
+        <Suspense fallback={<RouteFallback />}>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/document" element={<Document />} />
+            <Route path="*" element={<Landing />} />
+          </Routes>
+        </Suspense>
       </main>
       <Footer />
     </div>

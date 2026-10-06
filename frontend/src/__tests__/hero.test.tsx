@@ -25,10 +25,10 @@ beforeEach(() => {
 })
 
 describe('hero typography', () => {
-  it('renders the headline as one h1, with the second line in italic light', () => {
+  it('renders the headline as one h1, with the second line in italic light', async () => {
     renderApp()
 
-    const h1 = screen.getByRole('heading', { level: 1 })
+    const h1 = await screen.findByRole('heading', { level: 1 })
     expect(readHeadline()).toBe('Every answer, anchored to a page.')
 
     const italicWords = Array.from(h1.querySelectorAll('span[style*="italic"]')).map((el) =>
@@ -37,24 +37,25 @@ describe('hero typography', () => {
     expect(italicWords).toEqual(['to', 'a', 'page.'])
   })
 
-  it('wraps every headline word in its own maskable span', () => {
+  it('wraps every headline word in its own maskable span', async () => {
     renderApp()
-    const words = screen
-      .getByRole('heading', { level: 1 })
+    const words = (await screen.findByRole('heading', { level: 1 }))
       .querySelectorAll('[data-hero-word]')
     const texts = Array.from(words).map((w) => w.textContent?.trim())
     expect(texts).toEqual(['Every', 'answer,', 'anchored', 'to', 'a', 'page.'])
   })
 
-  it('puts the gold hairline under the eyebrow pill', () => {
+  it('puts the gold hairline under the eyebrow pill', async () => {
     const { container } = renderApp()
+    await screen.findByRole('heading', { level: 1 })
     const underline = container.querySelector('#hero-eyebrow-underline')
     expect(underline).toBeTruthy()
     expect(underline?.className).toContain('bg-gold')
   })
 
-  it('renders word separators as siblings of the word spans, never children', () => {
+  it('renders word separators as siblings of the word spans, never children', async () => {
     const { container } = renderApp()
+    await screen.findByRole('heading', { level: 1 })
     const mask = container.querySelector('.mask-lines') as HTMLElement
 
     // Each span must hold only its own word. A trailing space INSIDE an
@@ -74,9 +75,9 @@ describe('hero typography', () => {
     expect(separators.filter((t) => t === ' ').length).toBe(2)
   })
 
-  it('stacks the two lines with a gap instead of using a br', () => {
+  it('stacks the two lines with a gap instead of using a br', async () => {
     const { container } = renderApp()
-    const h1 = screen.getByRole('heading', { level: 1 })
+    const h1 = await screen.findByRole('heading', { level: 1 })
     expect(h1.querySelector('br')).toBeNull()
     expect(h1.className).toContain('headline')
     // The italic line is a sibling of the first, not text after a br.
@@ -96,13 +97,13 @@ describe('hero typography', () => {
     expect(Number(gap)).toBeGreaterThanOrEqual(0.2)
   })
 
-  it('separates the two headline lines with a real text node', () => {
+  it('separates the two headline lines with a real text node', async () => {
     // The separator between the two lines was silently absent from the source
     // once, which left the rendered text reading "anchoredto a page.". It must
     // be an explicit expression child, because whitespace-only JSX text is
     // dropped by the transform.
     renderApp()
-    const h1 = screen.getByRole('heading', { level: 1 })
+    const h1 = await screen.findByRole('heading', { level: 1 })
     const kids = [...h1.childNodes]
     const lineIdx = kids.findIndex(
       (n) =>
@@ -118,9 +119,9 @@ describe('hero typography', () => {
     expect(kids.indexOf(separators[0])).toBeGreaterThan(lineIdx)
   })
 
-  it('uses arbitrary font sizes so leading-[1.08] is not overridden', () => {
+  it('uses arbitrary font sizes so leading-[1.08] is not overridden', async () => {
     renderApp()
-    const h1 = screen.getByRole('heading', { level: 1 })
+    const h1 = await screen.findByRole('heading', { level: 1 })
     // text-4xl/text-5xl emit a line-height that beats leading-[1.08] on
     // source order, which collapsed the serif leading to 1.
     expect(h1.className).not.toMatch(/text-(4xl|5xl)/)
@@ -215,7 +216,7 @@ describe('hero metric cards are fed by live health, not mock figures', () => {
 describe('hero actions', () => {
   it('links the primary CTA to /chat and shows the real LLM model', async () => {
     renderApp()
-    const cta = screen.getByRole('link', { name: /launch chat interface/i })
+    const cta = await screen.findByRole('link', { name: /launch chat interface/i })
     expect(cta).toHaveAttribute('href', '/chat')
 
     // Scoped to the hero: the chat panel header also names the model.
