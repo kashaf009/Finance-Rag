@@ -174,18 +174,22 @@ class RagService:
             )
         return citations
 
-    def answer(self, question: str, top_k: int | None = None) -> AnswerResult:
-        final: RAGState = self._graph.invoke(self._initial_state(question, top_k))
+    def answer(
+        self, question: str, top_k: int | None = None, *, provider: str | None = None
+    ) -> AnswerResult:
+        final: RAGState = self._graph.invoke(self._initial_state(question, top_k, provider))
         return self._result_from_state(question, final)
 
-    def stream(self, question: str, top_k: int | None = None) -> Iterator[dict[str, object]]:
+    def stream(
+        self, question: str, top_k: int | None = None, *, provider: str | None = None
+    ) -> Iterator[dict[str, object]]:
         """Yield truthful pipeline updates while the Self-RAG graph is running.
 
         LangGraph emits a state snapshot after each node. The stream translates
         those snapshots into small UI-safe events, so retrieval and grading can
         be shown before the slower generation and verification calls finish.
         """
-        initial = self._initial_state(question, top_k)
+        initial = self._initial_state(question, top_k, provider)
         yield {
             "type": "stage",
             "stage": "retrieve",
@@ -226,12 +230,13 @@ class RagService:
             final = initial
         yield {"type": "complete", "response": self._result_from_state(question, final)}
 
-    def _initial_state(self, question: str, top_k: int | None) -> RAGState:
+    def _initial_state(self, question: str, top_k: int | None, provider: str | None) -> RAGState:
         cfg = self._deps.settings
         return {
             "question": question,
             "original_question": question,
             "query": question,
+            "provider": cfg.llm_provider if provider is None else provider,
             "top_k": top_k or cfg.rag_top_k,
             "pages": [],
             "rewrite_count": 0,

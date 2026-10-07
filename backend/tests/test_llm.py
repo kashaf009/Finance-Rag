@@ -3,7 +3,9 @@ from __future__ import annotations
 import base64
 import dataclasses
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+from threading import Barrier, Event
 from unittest.mock import Mock, patch
 
 import httpx
@@ -24,6 +26,7 @@ from app.llm import (
     NOT_FOUND_ANSWER,
     UTILITY,
     LLMConfigError,
+    ProviderSelection,
     build_llm,
     image_to_prompt_data_uri,
     is_refusal,
@@ -31,7 +34,6 @@ from app.llm import (
     reset_llm_cache,
     reset_prompt_image_cache,
     resolve_provider,
-    set_active_provider,
     text_of,
     to_prompt_data_uri,
 )
@@ -396,27 +398,83 @@ def test_build_llm_fails_loudly_when_page_count_exceeds_image_cap(monkeypatch) -
         reset_llm_cache()
 
 
-def test_set_active_provider_overrides_env(monkeypatch) -> None:
+def test_provider_selection_snapshots_override_and_revert_to_env(monkeypatch) -> None:
     monkeypatch.setenv("EURON_API_KEY", "euron-key")
     monkeypatch.setenv("EURI_BASE_URL", "https://euron.invalid/v1")
     monkeypatch.setenv("GROQ_API_KEY", "groq-key")
     monkeypatch.setenv("LLM_PROVIDER", "euron")
     reset_settings()
     try:
-        assert resolve_provider().name == "euron"
-        set_active_provider("groq")
-        assert resolve_provider().name == "groq"
-        set_active_provider(None)
-        assert resolve_provider().name == "euron"
+        selection = ProviderSelection()
+        settings = get_settings()
+        assert resolve_provider(selection.snapshot(settings)).name == "euron"
+        selection.select("groq", settings)
+        snapshot = selection.snapshot(settings)
+        assert resolve_provider(snapshot).name == "groq"
+        selection.select(None, settings)
+        assert resolve_provider(selection.snapshot(settings)).name == "euron"
+        assert resolve_provider(snapshot).name == "groq"
+        assert resolve_provider(settings).name == "euron"
     finally:
-        set_active_provider(None)
         reset_settings()
         reset_llm_cache()
 
 
-def test_set_active_provider_rejects_unknown_name() -> None:
+def test_provider_selection_rejects_unknown_name() -> None:
     with pytest.raises(LLMConfigError, match="Unknown LLM provider"):
-        set_active_provider("nope")
+        ProviderSelection().select("nope", get_settings())
+
+
+@pytest.mark.parametrize("role", [ANSWER, UTILITY])
+def test_provider_switch_reuses_cached_clients(role: str) -> None:
+    settings = dataclasses.replace(
+        get_settings(),
+        llm_provider="euron",
+        euron_api_key="euron-key",
+        euron_base_url="https://euron.invalid/v1",
+        groq_api_key="groq-key",
+    )
+    selection = ProviderSelection()
+    euron = build_llm(role, selection.snapshot(settings))
+    selection.select("groq", settings)
+    groq = build_llm(role, selection.snapshot(settings))
+    assert groq is not euron
+    selection.select("euron", settings)
+    assert build_llm(role, selection.snapshot(settings)) is euron
+    selection.select("groq", settings)
+    assert build_llm(role, selection.snapshot(settings)) is groq
+
+
+def test_concurrent_builds_share_one_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = dataclasses.replace(
+        get_settings(), llm_api_key="test-key", llm_base_url="https://example.invalid/v1"
+    )
+    start = Barrier(5)
+    created = Event()
+    release = Event()
+
+    def construct(**kwargs: object) -> object:
+        created.set()
+        assert release.wait(10), "Client construction was not released"
+        return object()
+
+    constructor = Mock(side_effect=construct)
+    monkeypatch.setattr(llm_client, "ChatOpenAI", constructor)
+
+    def build() -> object:
+        start.wait(10)
+        return build_llm(ANSWER, settings)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        pending = [pool.submit(build) for _ in range(4)]
+        try:
+            start.wait(10)
+            assert created.wait(10), "No worker reached client construction"
+        finally:
+            release.set()
+        models = [future.result(timeout=10) for future in pending]
+    assert all(model is models[0] for model in models)
+    constructor.assert_called_once()
 
 
 def test_provider_names_lists_both_providers() -> None:

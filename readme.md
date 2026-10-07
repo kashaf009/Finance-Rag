@@ -181,7 +181,10 @@ I could not find the information in the indexed pages of this document.
 
 ## LLM Providers
 
-The active generation provider can be changed at runtime.
+The active generation provider is an application-wide default that can be
+changed at runtime. Each chat turn keeps its starting provider through grading,
+query rewrites, generation, and verification; a switch takes effect for new
+turns. Provider selections are isolated between application instances.
 
 The default image budget is **3 pages** per generation and self-check request
 (`LLM_MAX_PAGES=3`), matching Groq's three-image limit. Retrieval still defaults
