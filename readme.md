@@ -358,6 +358,22 @@ EURON_API_KEY=your_euron_api_key
 
 Only configure the provider(s) you intend to use.
 
+#### Rotate API keys
+
+Create replacement keys through the provider accounts:
+
+| Local variable | Key management |
+|---|---|
+| `GROQ_API_KEY` | [Groq API keys](https://console.groq.com/keys) |
+| `EURON_API_KEY` | API-key controls in your [Euron account](https://euron.one) |
+| `GOOGLE_API_KEY` | [Google AI Studio API keys](https://aistudio.google.com/apikey), using the existing project |
+
+Save the replacements directly in `backend/.env` and update any matching exported
+environment variables. Restart the backend to load the new settings and clients.
+Verify that the replacements authenticate with their providers, then revoke the
+old keys in the provider accounts to complete rotation. Use `.env.example` files
+for shareable placeholder configuration.
+
 ### 4. Index the PDF
 
 From the `backend` directory:
