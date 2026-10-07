@@ -124,7 +124,7 @@ class AppSettings:
     llm_reasoning_effort: str = field(default_factory=lambda: env_str("LLM_REASONING_EFFORT", ""))
     llm_image_max_edge: int = field(default_factory=lambda: env_int("LLM_IMAGE_MAX_EDGE", 768))
     llm_image_quality: int = field(default_factory=lambda: env_int("LLM_IMAGE_QUALITY", 70))
-    llm_max_pages: int = field(default_factory=lambda: env_int("LLM_MAX_PAGES", 5))
+    llm_max_pages: int = field(default_factory=lambda: env_int("LLM_MAX_PAGES", 3))
 
     rag_top_k: int = field(default_factory=lambda: env_int("RAG_TOP_K", 5))
     rag_relevance_threshold: float = field(

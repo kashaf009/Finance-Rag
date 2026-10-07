@@ -183,6 +183,11 @@ I could not find the information in the indexed pages of this document.
 
 The active generation provider can be changed at runtime.
 
+The default image budget is **3 pages** per generation and self-check request
+(`LLM_MAX_PAGES=3`), matching Groq's three-image limit. Retrieval still defaults
+to **5 pages** (`RAG_TOP_K=5`). Euron supports a larger explicit image budget;
+the configured budget must fit the active provider when switching models.
+
 | Provider | Model |
 |---|---|
 | `groq` | `qwen/qwen3.8-27b` |
