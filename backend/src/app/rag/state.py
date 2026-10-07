@@ -18,6 +18,7 @@ class RAGState(TypedDict, total=False):
     question: str
     original_question: str
     query: str
+    provider: str
     top_k: int
     pages: list[RetrievedPage]
     rewrite_count: int

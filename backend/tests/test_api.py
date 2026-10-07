@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
+from threading import Event
 from typing import Any
 from unittest.mock import patch
 
@@ -39,14 +41,18 @@ class StubService:
             raise self.error
         return self.result.citations if self.result else []
 
-    def answer(self, question: str, top_k: int | None = None) -> AnswerResult:
+    def answer(
+        self, question: str, top_k: int | None = None, *, provider: str | None = None
+    ) -> AnswerResult:
         self.answered.append((question, top_k))
         if self.error is not None:
             raise self.error
         assert self.result is not None
         return self.result
 
-    def stream(self, question: str, top_k: int | None = None) -> Iterator[dict[str, object]]:
+    def stream(
+        self, question: str, top_k: int | None = None, *, provider: str | None = None
+    ) -> Iterator[dict[str, object]]:
         self.streamed.append((question, top_k))
         if self.error is not None:
             raise self.error
@@ -224,6 +230,39 @@ def test_select_llm_provider_rejects_name_without_key(monkeypatch, client: TestC
     assert "GROQ_API_KEY" in response.json()["detail"]
 
 
+def test_provider_selection_is_application_scoped(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "euron")
+    monkeypatch.setenv("EURON_API_KEY", "euron-key")
+    monkeypatch.setenv("EURON_BASE_URL", "https://euron.invalid/v1")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    reset_settings()
+    client.app.dependency_overrides[get_store] = lambda: FakeStore([])
+    other_app = create_app()
+    other_app.dependency_overrides[get_store] = lambda: FakeStore([])
+    with TestClient(other_app) as other_client:
+        assert client.post("/llm-provider", json={"provider": "groq"}).status_code == 200
+        assert client.get("/health").json()["llm_provider"] == "groq"
+        assert other_client.get("/health").json()["llm_provider"] == "euron"
+        assert llm_client.resolve_provider().name == "euron"
+
+
+def test_failed_provider_switch_preserves_current_selection(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "euron")
+    monkeypatch.setenv("EURON_BASE_URL", "https://euron.invalid/v1")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    reset_settings()
+    client.app.dependency_overrides[get_store] = lambda: FakeStore([])
+    assert client.post("/llm-provider", json={"provider": "groq"}).status_code == 200
+    failed = client.post("/llm-provider", json={"provider": None})
+    assert failed.status_code == 422
+    assert "EURON_API_KEY" in failed.json()["detail"]
+    assert client.get("/health").json()["llm_provider"] == "groq"
+
+
 def test_collections_returns_metadata(client: TestClient) -> None:
     store = FakeStore([FakeHit(0.9, {})])
     client.app.dependency_overrides[get_store] = lambda: store
@@ -315,6 +354,109 @@ def _sse_frames(body: str) -> list[tuple[str, dict[str, object]]]:
         data = next(line.removeprefix("data: ") for line in lines if line.startswith("data:"))
         frames.append((event, json.loads(data)))
     return frames
+
+
+@pytest.mark.parametrize("endpoint", ["/chat", "/chat/stream"])
+@pytest.mark.parametrize("rewrite", [False, True])
+def test_provider_switch_during_chat_keeps_turn_consistent(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient, endpoint: str, rewrite: bool
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "euron")
+    monkeypatch.setenv("EURON_API_KEY", "euron-key")
+    monkeypatch.setenv("EURON_BASE_URL", "https://euron.invalid/v1")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    reset_settings()
+    answer = "Financial results [p1]."
+    first_replies = (
+        ["NO", "broader query", "YES", answer, "SUPPORTED"]
+        if rewrite
+        else ["YES", answer, "SUPPORTED"]
+    )
+    replies = iter([*first_replies, "YES", answer, "SUPPORTED"])
+    requests: list[dict[str, Any]] = []
+    connections: list[tuple[str, str | None]] = []
+    started = Event()
+    release = Event()
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        requests.append(body)
+        connections.append((request.url.host, request.headers.get("authorization")))
+        if len(requests) == 1:
+            started.set()
+            assert release.wait(10), "Provider switch did not release the first LLM request"
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "created": 0,
+                "model": body["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": next(replies)},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    store = FakeStore(
+        [
+            FakeHit(
+                0.9,
+                {
+                    "doc_id": "doc",
+                    "page_number": 1,
+                    "prompt_data_uri": image_to_base64(_page((120, 165), "page 1")),
+                },
+            )
+        ]
+    )
+    service = RagService(
+        deps=RagDeps(
+            settings=get_settings(),
+            embedder=FakeEmbedder(),
+            store=store,
+        )
+    )
+    client.app.dependency_overrides[get_rag_service] = lambda: service
+    client.app.dependency_overrides[get_store] = lambda: store
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http_client:
+        monkeypatch.setattr(llm_client, "ChatOpenAI", partial(ChatOpenAI, http_client=http_client))
+        assert client.post("/llm-provider", json={"provider": "groq"}).status_code == 200
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(client.post, endpoint, json={"question": "financial results"})
+            try:
+                assert started.wait(10), "Chat did not reach its first LLM request"
+                switched = client.post("/llm-provider", json={"provider": "euron"})
+                assert switched.status_code == 200
+                assert client.get("/health").json()["llm_provider"] == "euron"
+            finally:
+                release.set()
+            first = pending.result(timeout=10)
+        second = client.post(endpoint, json={"question": "financial results"})
+
+    for response, rewrites in ((first, int(rewrite)), (second, 0)):
+        assert response.status_code == 200
+        if endpoint.endswith("/stream"):
+            frames = _sse_frames(response.text)
+            assert frames[-1][0] == "complete"
+            result = frames[-1][1]["response"]
+        else:
+            result = response.json()
+        assert result["supported"] is True
+        assert result["rewrites"] == rewrites
+        assert [citation["page_number"] for citation in result["citations"]] == [1]
+    assert [request["model"] for request in requests] == [
+        *(["qwen/qwen3.8-27b"] * len(first_replies)),
+        *(["gemini-2.5-flash"] * 3),
+    ]
+    assert connections == [
+        *([("api.groq.com", "Bearer groq-key")] * len(first_replies)),
+        *([("euron.invalid", "Bearer euron-key")] * 3),
+    ]
 
 
 @pytest.mark.parametrize("endpoint", ["/chat", "/chat/stream"])

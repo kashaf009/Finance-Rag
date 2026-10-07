@@ -48,12 +48,18 @@ class RagDeps:
     answer_llm: Any = None
     utility_llm: Any = None
 
-    def answer_model(self) -> Any:
-        return self.answer_llm if self.answer_llm is not None else build_llm(ANSWER, self.settings)
-
-    def utility_model(self) -> Any:
+    def answer_model(self, provider: str | None = None) -> Any:
         return (
-            self.utility_llm if self.utility_llm is not None else build_llm(UTILITY, self.settings)
+            self.answer_llm
+            if self.answer_llm is not None
+            else build_llm(ANSWER, self.settings, provider=provider)
+        )
+
+    def utility_model(self, provider: str | None = None) -> Any:
+        return (
+            self.utility_llm
+            if self.utility_llm is not None
+            else build_llm(UTILITY, self.settings, provider=provider)
         )
 
 
@@ -170,7 +176,7 @@ def grade_documents(state: RAGState, deps: RagDeps) -> RAGState:
     content.extend(_image_blocks(sample, deps.settings))
     try:
         reply = text_of(
-            deps.utility_model().invoke(
+            deps.utility_model(state.get("provider")).invoke(
                 [SystemMessage(content=GRADER_SYSTEM), HumanMessage(content=content)]
             )
         )
@@ -192,7 +198,7 @@ def rewrite_query(state: RAGState, deps: RagDeps) -> RAGState:
     )
     try:
         reply = text_of(
-            deps.utility_model().invoke(
+            deps.utility_model(state.get("provider")).invoke(
                 [SystemMessage(content=REWRITER_SYSTEM), HumanMessage(content=prompt)]
             )
         )
@@ -225,7 +231,7 @@ def generate(state: RAGState, deps: RagDeps) -> RAGState:
     content.extend(_image_blocks(selected, deps.settings))
     try:
         reply = text_of(
-            deps.answer_model().invoke(
+            deps.answer_model(state.get("provider")).invoke(
                 [SystemMessage(content=ANSWER_SYSTEM), HumanMessage(content=content)]
             )
         )
@@ -266,7 +272,7 @@ def self_check(state: RAGState, deps: RagDeps) -> RAGState:
     content.extend(_image_blocks(selected, deps.settings))
     try:
         reply = text_of(
-            deps.utility_model().invoke(
+            deps.utility_model(state.get("provider")).invoke(
                 [SystemMessage(content=SELF_CHECK_SYSTEM), HumanMessage(content=content)]
             )
         )

@@ -12,6 +12,7 @@ from app.api.routes import reset_document_pages_cache, router
 from app.core.config import get_settings
 from app.core.env import load_env
 from app.core.logging import get_logger, setup_logging
+from app.llm import ProviderSelection
 
 logger = get_logger("main")
 
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
         summary="Self-RAG question answering over scanned bank annual reports",
         lifespan=lifespan,
     )
+    app.state.provider_selection = ProviderSelection()
     if settings.api_cors_origins:
         app.add_middleware(
             CORSMiddleware,

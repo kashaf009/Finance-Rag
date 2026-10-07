@@ -7,19 +7,17 @@ import pytest
 from PIL import Image, ImageDraw
 
 from app.core.config import reset_settings
-from app.llm import reset_llm_cache, reset_prompt_image_cache, set_active_provider
+from app.llm import reset_llm_cache, reset_prompt_image_cache
 from tests.fakes import FakeClient, FakeEmbedder, FakeModels
 
 
 @pytest.fixture(autouse=True)
 def _reset_settings() -> Iterator[None]:
     reset_settings()
-    set_active_provider(None)
     reset_llm_cache()
     reset_prompt_image_cache()
     yield
     reset_settings()
-    set_active_provider(None)
     reset_llm_cache()
     reset_prompt_image_cache()
 

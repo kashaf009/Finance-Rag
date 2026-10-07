@@ -9,7 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from PIL import Image
 
-from app.api.deps import get_rag_service, get_settings_dep, get_store
+from app.api.deps import (
+    get_llm_settings,
+    get_provider_selection,
+    get_rag_service,
+    get_settings_dep,
+    get_store,
+)
 from app.api.schemas import (
     ChatCitationModel,
     ChatRequest,
@@ -26,9 +32,9 @@ from app.api.schemas import (
 from app.core.config import AppSettings
 from app.llm import (
     LLMConfigError,
+    ProviderSelection,
     provider_names,
     resolve_provider,
-    set_active_provider,
 )
 from app.rag import AnswerResult, RagError, RagService
 from app.vector import QdrantStore
@@ -36,6 +42,8 @@ from app.vector import QdrantStore
 router = APIRouter(tags=["finance-rag"])
 
 SettingsDep = Annotated[AppSettings, Depends(get_settings_dep)]
+LLMSettingsDep = Annotated[AppSettings, Depends(get_llm_settings)]
+ProviderSelectionDep = Annotated[ProviderSelection, Depends(get_provider_selection)]
 StoreDep = Annotated[QdrantStore, Depends(get_store)]
 ServiceDep = Annotated[RagService, Depends(get_rag_service)]
 
@@ -83,7 +91,7 @@ def _sse(event: dict[str, object]) -> str:
 
 
 @router.get("/health", response_model=HealthResponse)
-def health(settings: SettingsDep, store: StoreDep) -> HealthResponse:
+def health(settings: LLMSettingsDep, store: StoreDep) -> HealthResponse:
     ready = False
     points: int | None = None
     vector_size: int | None = None
@@ -121,13 +129,13 @@ def health(settings: SettingsDep, store: StoreDep) -> HealthResponse:
 
 
 @router.post("/llm-provider", response_model=LLMProviderResponse)
-def select_llm_provider(payload: LLMProviderRequest, settings: SettingsDep) -> LLMProviderResponse:
+def select_llm_provider(
+    payload: LLMProviderRequest, settings: SettingsDep, selection: ProviderSelectionDep
+) -> LLMProviderResponse:
     name = payload.provider.strip().lower() if payload.provider else None
     try:
-        set_active_provider(name)
-        resolved = resolve_provider(settings)
+        resolved = selection.select(name, settings)
     except LLMConfigError as exc:
-        set_active_provider(None)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return LLMProviderResponse(
         provider=resolved.name,
@@ -166,9 +174,11 @@ def search(payload: SearchRequest, service: ServiceDep) -> SearchResponse:
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(payload: ChatRequest, service: ServiceDep) -> ChatResponse:
+def chat(payload: ChatRequest, service: ServiceDep, settings: LLMSettingsDep) -> ChatResponse:
     try:
-        result = service.answer(payload.question, top_k=payload.top_k)
+        result = service.answer(
+            payload.question, top_k=payload.top_k, provider=settings.llm_provider
+        )
     except LLMConfigError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except RagError as exc:
@@ -177,7 +187,9 @@ def chat(payload: ChatRequest, service: ServiceDep) -> ChatResponse:
 
 
 @router.post("/chat/stream")
-def chat_stream(payload: ChatRequest, service: ServiceDep) -> StreamingResponse:
+def chat_stream(
+    payload: ChatRequest, service: ServiceDep, settings: LLMSettingsDep
+) -> StreamingResponse:
     """Stream Self-RAG stage updates as server-sent events.
 
     The final event carries the same response shape as POST /chat. Earlier
@@ -187,7 +199,9 @@ def chat_stream(payload: ChatRequest, service: ServiceDep) -> StreamingResponse:
 
     def events():
         try:
-            for event in service.stream(payload.question, top_k=payload.top_k):
+            for event in service.stream(
+                payload.question, top_k=payload.top_k, provider=settings.llm_provider
+            ):
                 if event.get("type") == "complete":
                     result = event.get("response")
                     if not isinstance(result, AnswerResult):

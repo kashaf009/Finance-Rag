@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from threading import Lock
 from typing import Any, Final
 
 from langchain_openai import ChatOpenAI
@@ -83,31 +84,41 @@ class ResolvedProvider:
 
 
 _clients: dict[tuple[object, ...], ChatOpenAI] = {}
-_override: str | None = None
+_clients_lock = Lock()
 
 
 def provider_names() -> list[str]:
     return sorted(PROVIDERS)
 
 
-def get_active_provider() -> str | None:
-    return _override
+class ProviderSelection:
+    """An application-owned default; each chat receives an immutable snapshot."""
 
+    def __init__(self) -> None:
+        self._name: str | None = None
+        self._lock = Lock()
 
-def set_active_provider(name: str | None) -> None:
-    global _override
-    if name is not None and name not in PROVIDERS:
-        raise LLMConfigError(
-            f"Unknown LLM provider {name!r}. Available: {', '.join(provider_names())}."
-        )
-    _override = name
-    reset_llm_cache()
-    logger.info("llm.provider.changed active=%s", name or DEFAULT_LLM_PROVIDER)
+    def snapshot(self, settings: AppSettings) -> AppSettings:
+        with self._lock:
+            name = self._name
+        return replace(settings, llm_provider=name) if name is not None else settings
+
+    def select(self, name: str | None, settings: AppSettings) -> ResolvedProvider:
+        if name is not None and name not in PROVIDERS:
+            raise LLMConfigError(
+                f"Unknown LLM provider {name!r}. Available: {', '.join(provider_names())}."
+            )
+        candidate = replace(settings, llm_provider=name) if name is not None else settings
+        resolved = resolve_provider(candidate)
+        with self._lock:
+            self._name = name
+        logger.info("llm.provider.changed active=%s", resolved.name)
+        return resolved
 
 
 def resolve_provider(settings: AppSettings | None = None) -> ResolvedProvider:
     cfg = settings or get_settings()
-    name = (_override or cfg.llm_provider or DEFAULT_LLM_PROVIDER).strip().lower()
+    name = (cfg.llm_provider or DEFAULT_LLM_PROVIDER).strip().lower()
     provider = PROVIDERS.get(name)
     if provider is None:
         raise LLMConfigError(
@@ -155,8 +166,12 @@ def _cache_key(
     )
 
 
-def build_llm(role: str = ANSWER, settings: AppSettings | None = None) -> ChatOpenAI:
+def build_llm(
+    role: str = ANSWER, settings: AppSettings | None = None, *, provider: str | None = None
+) -> ChatOpenAI:
     cfg = settings or get_settings()
+    if provider is not None:
+        cfg = replace(cfg, llm_provider=provider)
     resolved = resolve_provider(cfg)
 
     is_answer = role == ANSWER
@@ -174,30 +189,32 @@ def build_llm(role: str = ANSWER, settings: AppSettings | None = None) -> ChatOp
         )
 
     key = _cache_key(role, resolved, cfg, model, temperature)
-    cached = _clients.get(key)
-    if cached is not None:
-        return cached
+    with _clients_lock:
+        cached = _clients.get(key)
+        if cached is not None:
+            return cached
 
-    extra_body: dict[str, object] = {}
-    if not is_answer and resolved.supports_reasoning_effort and cfg.llm_reasoning_effort:
-        extra_body["reasoning_effort"] = cfg.llm_reasoning_effort
+        extra_body: dict[str, object] = {}
+        if not is_answer and resolved.supports_reasoning_effort and cfg.llm_reasoning_effort:
+            extra_body["reasoning_effort"] = cfg.llm_reasoning_effort
 
-    client = ChatOpenAI(
-        model=model,
-        api_key=resolved.api_key,
-        base_url=resolved.base_url,
-        temperature=temperature,
-        request_timeout=cfg.llm_timeout,
-        max_retries=cfg.llm_max_retries,
-        model_kwargs={"max_completion_tokens": cfg.llm_max_completion_tokens},
-        extra_body=extra_body or None,
-    )
-    _clients[key] = client
-    return client
+        client = ChatOpenAI(
+            model=model,
+            api_key=resolved.api_key,
+            base_url=resolved.base_url,
+            temperature=temperature,
+            request_timeout=cfg.llm_timeout,
+            max_retries=cfg.llm_max_retries,
+            model_kwargs={"max_completion_tokens": cfg.llm_max_completion_tokens},
+            extra_body=extra_body or None,
+        )
+        _clients[key] = client
+        return client
 
 
 def reset_llm_cache() -> None:
-    _clients.clear()
+    with _clients_lock:
+        _clients.clear()
 
 
 def text_of(message: Any) -> str:
