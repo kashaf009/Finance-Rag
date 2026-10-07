@@ -69,7 +69,7 @@ def test_graph_runs_happy_path_and_cites_pages() -> None:
 def test_prompt_images_are_encoded_once_and_reused_across_turns(streaming: bool) -> None:
     utility = FakeLLM(["YES", "SUPPORTED"] * 2)
     answer = FakeLLM(["Financial results [p1, p2, p3, p4, p5]."] * 2)
-    deps = _deps(utility, answer, [_page(number, 0.9) for number in range(1, 9)])
+    deps = _deps(utility, answer, [_page(number, 0.9) for number in range(1, 9)], llm_max_pages=5)
     service = RagService(deps=deps)
 
     def run() -> AnswerResult:
@@ -110,6 +110,7 @@ def test_search_and_unprepared_citations_share_the_chat_image_cache() -> None:
         FakeLLM(["YES", "SUPPORTED"]),
         FakeLLM(["Financial results [p1, p2, p3, p4, p5]."]),
         [_page(number, 0.9) for number in range(1, 6)],
+        llm_max_pages=5,
     )
     service = RagService(deps=deps)
     pages = [RetrievedPage(**hit.payload, score=hit.score) for hit in deps.store.pages]
@@ -167,6 +168,7 @@ def test_query_rewrites_reuse_images_for_overlapping_retrievals() -> None:
         FakeLLM(["NO", "broader query", "NO", "another query", "YES", "SUPPORTED"]),
         FakeLLM(["Financial results [p1, p2, p3, p4, p5]."]),
         [_page(number, 0.9) for number in range(1, 6)],
+        llm_max_pages=5,
     )
     with patch.object(
         prompt_images, "image_to_jpeg_bytes", wraps=prompt_images.image_to_jpeg_bytes

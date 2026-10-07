@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from functools import partial
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
+from langchain_openai import ChatOpenAI
 from PIL import Image
 
 from app.api.deps import get_rag_service, get_store
 from app.api.routes import reset_document_pages_cache
 from app.core.config import get_settings, reset_settings
 from app.imaging.encode import image_to_base64
+from app.llm import client as llm_client
 from app.main import create_app
 from app.rag import AnswerResult, Citation, RagError, RagService
 from app.rag.nodes import RagDeps
@@ -311,6 +315,97 @@ def _sse_frames(body: str) -> list[tuple[str, dict[str, object]]]:
         data = next(line.removeprefix("data: ") for line in lines if line.startswith("data:"))
         frames.append((event, json.loads(data)))
     return frames
+
+
+@pytest.mark.parametrize("endpoint", ["/chat", "/chat/stream"])
+@pytest.mark.parametrize("max_pages", [None, 1])
+def test_groq_chat_after_provider_switch_respects_image_budget(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient, endpoint: str, max_pages: int | None
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "euron")
+    monkeypatch.setenv("EURON_API_KEY", "euron-key")
+    monkeypatch.setenv("EURON_BASE_URL", "https://euron.invalid/v1")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    if max_pages is not None:
+        monkeypatch.setenv("LLM_MAX_PAGES", str(max_pages))
+    reset_settings()
+    budget = 3 if max_pages is None else max_pages
+    markers = ", ".join(f"p{number}" for number in range(1, budget + 1))
+    replies = iter(["YES", f"Financial results [{markers}].", "SUPPORTED"])
+    requests: list[dict[str, Any]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        requests.append(body)
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "created": 0,
+                "model": body["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": next(replies)},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    service = RagService(
+        deps=RagDeps(
+            settings=get_settings(),
+            embedder=FakeEmbedder(),
+            store=FakeStore(
+                [
+                    FakeHit(
+                        0.9,
+                        {
+                            "doc_id": "doc",
+                            "page_number": number,
+                            "prompt_data_uri": image_to_base64(_page((120, 165), f"page {number}")),
+                        },
+                    )
+                    for number in range(1, 6)
+                ]
+            ),
+        )
+    )
+    client.app.dependency_overrides[get_rag_service] = lambda: service
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http_client:
+        monkeypatch.setattr(llm_client, "ChatOpenAI", partial(ChatOpenAI, http_client=http_client))
+        selected = client.post("/llm-provider", json={"provider": "groq"})
+        assert selected.status_code == 200
+        assert selected.json()["provider"] == "groq"
+        response = client.post(endpoint, json={"question": "What were the financial results?"})
+
+    assert response.status_code == 200
+    if endpoint.endswith("/stream"):
+        frames = _sse_frames(response.text)
+        assert frames[-1][0] == "complete"
+        result = frames[-1][1]["response"]
+    else:
+        result = response.json()
+    assert result["supported"] is True
+    assert result["pages_considered"] == 5
+    assert [citation["page_number"] for citation in result["citations"]] == list(
+        range(1, budget + 1)
+    )
+    images = [
+        [
+            block["image_url"]["url"]
+            for block in request["messages"][-1]["content"]
+            if block["type"] == "image_url"
+        ]
+        for request in requests
+    ]
+    assert [len(pages) for pages in images] == [2, budget, budget]
+    assert images[1] == images[2]
+    assert all(request["model"] == "qwen/qwen3.8-27b" for request in requests)
+    generated = next(step for step in result["trace"] if step["node"] == "generate")
+    assert generated["pages"] == budget
 
 
 def test_chat_stream_emits_stage_and_complete_sse_events(
