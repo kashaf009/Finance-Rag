@@ -17,7 +17,7 @@ beforeEach(() => {
 
 describe('app shell', () => {
   it('renders the fixed navbar on every route', () => {
-    for (const path of ['/', '/chat', '/document']) {
+    for (const path of ['/', '/chat', '/document', '/documents']) {
       const { unmount } = renderApp(path)
       expect(screen.getByRole('banner'), `navbar missing on ${path}`).toBeInTheDocument()
       unmount()
@@ -91,12 +91,13 @@ describe('routing', () => {
   const routes: Array<[string, () => void]> = [
     ['/', () => expect(readHeadline()).toBe('Every answer, anchored to a page.')],
     ['/chat', () => expect(screen.getByTestId('chat-panel')).toBeInTheDocument()],
-    ['/document', () => expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()],
+    ['/document', () => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Every page, as rendered at ingest.')],
+    ['/documents', () => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Every page, as rendered at ingest.')],
   ]
 
-  it.each(routes)('%s renders its page', (path, assert) => {
+  it.each(routes)('%s renders its page', async (path, assert) => {
     renderApp(path)
-    assert()
+    await waitFor(assert)
   })
 
   it('falls back to the landing page for an unknown path', () => {

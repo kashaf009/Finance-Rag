@@ -23,11 +23,12 @@ export function DocumentCard() {
   const { points, ready, isPending: healthPending, isError: healthError } = useIndexReady()
   const { top, hits, scanning } = usePreviewHit()
   // Measured identity, not the hardcoded constant. Shares the reader's query
-  // key, so landing on /document costs no extra round trip.
+  // key, so navigation can display cached facts while refreshing them.
   const { data: document } = useQuery({
     queryKey: ['document-pages'],
     queryFn: ({ signal }) => getDocumentPages(signal),
-    staleTime: Infinity,
+    staleTime: 30_000,
+    refetchOnMount: 'always',
   })
 
   return (
@@ -161,7 +162,7 @@ export function DocumentCard() {
           distance
         </span>
         <Link
-          to="/document"
+          to="/documents"
           className="inline-flex items-center space-x-1 text-noir/70 hover:text-gold-dark font-semibold"
         >
           Reader <ExternalLink className="w-3 h-3" />

@@ -49,6 +49,7 @@ export default function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/chat" element={<Chat />} />
             <Route path="/document" element={<Document />} />
+            <Route path="/documents" element={<Document />} />
             <Route path="*" element={<Landing />} />
           </Routes>
         </Suspense>

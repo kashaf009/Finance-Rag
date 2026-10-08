@@ -747,19 +747,54 @@ def test_document_pages_reports_the_renders_on_disk(
     assert (body["page_width"], body["page_height"]) == (120, 165)
 
 
-def test_document_pages_caches_inventory_until_invalidated(
+def test_document_pages_refreshes_when_the_render_set_changes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    doc_dir = _seed_ingest(tmp_path, page_count=1)
+    with (
+        _client_for_ingest(monkeypatch, tmp_path) as client,
+        patch("app.api.routes.Image.open", wraps=Image.open) as open_image,
+    ):
+        assert client.get("/document/pages").json()["page_count"] == 1
+        (doc_dir / "page_0002.jpg").write_bytes((doc_dir / "page_0001.jpg").read_bytes())
+        assert client.get("/document/pages").json()["page_count"] == 2
+        # A second request with the same filesystem revision remains cached.
+        assert client.get("/document/pages").json()["page_count"] == 2
+        assert open_image.call_count == 2
+
+        reset_document_pages_cache()
+        assert client.get("/document/pages").json()["page_count"] == 2
+        assert open_image.call_count == 3
+
+
+def test_document_pages_recovers_when_ingested_after_the_first_request(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with _client_for_ingest(monkeypatch, tmp_path) as client:
+        assert client.get("/document/pages").json()["page_count"] == 0
+        _seed_ingest(tmp_path, page_count=3)
+
+        body = client.get("/document/pages").json()
+        assert body["page_count"] == 3
+        assert body["doc_id"] == DOC_ID
+        assert client.get("/document/page/1").status_code == 200
+
+
+def test_document_pages_refreshes_changed_dimensions_and_pdf_size(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     doc_dir = _seed_ingest(tmp_path, page_count=1)
     with _client_for_ingest(monkeypatch, tmp_path) as client:
-        with patch("app.api.routes.Image.open", wraps=Image.open) as open_image:
-            assert client.get("/document/pages").json()["page_count"] == 1
-            (doc_dir / "page_0002.jpg").write_bytes((doc_dir / "page_0001.jpg").read_bytes())
-            assert client.get("/document/pages").json()["page_count"] == 1
-        assert open_image.call_count == 1
+        body = client.get("/document/pages").json()
+        assert (body["page_width"], body["page_height"]) == (120, 165)
 
-        reset_document_pages_cache()
-        assert client.get("/document/pages").json()["page_count"] == 2
+        _page((80, 100), "updated page").save(doc_dir / "page_0001.jpg", "JPEG")
+        pdf = b"%PDF-1.7\nupdated document"
+        (tmp_path / "docs" / f"{DOC_ID}.pdf").write_bytes(pdf)
+
+        body = client.get("/document/pages").json()
+        assert (body["page_width"], body["page_height"]) == (80, 100)
+        assert body["pdf_byte_size"] == len(pdf)
 
 
 def test_document_page_serves_the_file_verbatim(
@@ -774,13 +809,18 @@ def test_document_page_serves_the_file_verbatim(
     assert response.content == (doc_dir / "page_0002.jpg").read_bytes()
 
 
-def test_document_page_sets_an_immutable_cache_header(
+def test_document_page_revalidates_after_a_render_update(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    _seed_ingest(tmp_path, page_count=1)
+    doc_dir = _seed_ingest(tmp_path, page_count=1)
     with _client_for_ingest(monkeypatch, tmp_path) as client:
         response = client.get("/document/page/1")
-    assert "immutable" in response.headers["cache-control"]
+        assert response.headers["cache-control"] == "no-cache"
+        _page((80, 100), "updated page").save(doc_dir / "page_0001.jpg", "JPEG")
+        updated = client.get("/document/page/1")
+        assert updated.content != response.content
+        assert updated.content == (doc_dir / "page_0001.jpg").read_bytes()
+        assert updated.headers["etag"] != response.headers["etag"]
 
 
 @pytest.mark.parametrize("page", [0, -1, 4, 9999])

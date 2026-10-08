@@ -103,7 +103,7 @@ export function Navbar() {
               </>
             )}
           </NavLink>
-          <NavLink to="/document" className={linkBase}>
+          <NavLink to="/documents" className={linkBase}>
             Document Reader
             <span className={linkUnderline} />
           </NavLink>

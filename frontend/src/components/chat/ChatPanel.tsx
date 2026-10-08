@@ -162,7 +162,7 @@ export function ChatPanel({ className = '' }: { className?: string }) {
         {/* The embedder that produced the page vectors, from /health. */}
         <span className="text-ivory/50 whitespace-nowrap">{health?.embed_model ?? 'embedder unknown'}</span>
         <span className="text-ivory/40 whitespace-nowrap">·</span>
-        <Link to="/document" className="text-ivory/70 hover:text-gold transition-colors whitespace-nowrap">
+        <Link to="/documents" className="text-ivory/70 hover:text-gold transition-colors whitespace-nowrap">
           open reader
         </Link>
       </div>

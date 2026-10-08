@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import {
@@ -11,6 +11,7 @@ import {
   resetQueryCache,
 } from '@/test-utils/render'
 import { formatSize } from '@/lib/document'
+import { queryClient } from '@/lib/queryClient'
 
 /**
  * The reader's contract with GET /document/pages.
@@ -106,6 +107,48 @@ describe('page reader', () => {
     expect(last.getAttribute('src')).toMatch(/\/document\/page\/139$/)
   })
 
+  it('shows a fallback and can retry when a page image cannot load', async () => {
+    const user = userEvent.setup()
+    stubDocument({ ...DOCUMENT_PAGES, page_count: 1 })
+    renderApp('/documents')
+    await expectFacts('1 pages')
+
+    fireEvent.error(screen.getByAltText('Page 1'))
+
+    expect(screen.getByRole('img', { name: 'Page 1 unavailable' })).toHaveTextContent(
+      'Page image unavailable',
+    )
+    expect(screen.queryByAltText('Page 1')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Refresh pages' }))
+    expect(screen.getByAltText('Page 1')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'Page 1 unavailable' })).not.toBeInTheDocument()
+  })
+
+  it('refreshes an empty inventory cached before entering the reader', async () => {
+    queryClient.setQueryData(['document-pages'], NO_DOCUMENT_PAGES)
+    const fetchMock = stubDocument({ ...DOCUMENT_PAGES, page_count: 3 })
+    renderApp('/documents')
+
+    await expectFacts('3 pages')
+    expect(screen.getByAltText('Page 3')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/document/pages'))).toBe(true)
+  })
+
+  it('finds renders added while the reader is open when refreshed', async () => {
+    const user = userEvent.setup()
+    stubDocument(NO_DOCUMENT_PAGES)
+    renderApp('/documents')
+    await screen.findByText('No pages on disk.')
+
+    stubDocument({ ...DOCUMENT_PAGES, page_count: 2 })
+    await user.click(screen.getByRole('button', { name: 'Refresh pages' }))
+
+    await expectFacts('2 pages')
+    expect(screen.getByAltText('Page 2')).toBeInTheDocument()
+    expect(screen.queryByText('No pages on disk.')).not.toBeInTheDocument()
+  })
+
   it('renders exactly as many cards as the backend counted', async () => {
     stubDocument({ ...DOCUMENT_PAGES, page_count: 4 })
     renderApp('/document')
@@ -146,6 +189,22 @@ describe('page reader', () => {
 })
 
 describe('page lightbox', () => {
+  it('reports image failures without breaking navigation to the next page', async () => {
+    const user = userEvent.setup()
+    stubDocument({ ...DOCUMENT_PAGES, page_count: 2 })
+    renderApp('/documents')
+    await expectFacts('2 pages')
+    await user.click(screen.getByAltText('Page 1'))
+
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.error(within(dialog).getByAltText('Page 1'))
+    expect(within(dialog).getByRole('img', { name: 'Page 1 unavailable' })).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Next page' }))
+    expect(within(dialog).getByAltText('Page 2')).toBeInTheDocument()
+    expect(within(dialog).queryByText('Page image unavailable')).not.toBeInTheDocument()
+  })
+
   it('opens a full-resolution view and closes on Escape', async () => {
     const user = userEvent.setup()
     stubDocument({ ...DOCUMENT_PAGES, page_count: 3 })
