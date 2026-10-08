@@ -3,6 +3,9 @@
 !.env.example
 node_modules
 
+# Local documents
+/docs/
+
 # macOS
 .DS_Store
 
