@@ -254,9 +254,40 @@ def _page_path(doc_dir: Path, page_number: int) -> Path | None:
     return path if path.is_file() else None
 
 
+def _path_revision(path: Path) -> tuple[int, int] | None:
+    """Return a cheap revision for a file or directory that may be ingested."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+def _document_pages_revision(storage_dir: Path, docs_dir: Path) -> tuple[object, ...]:
+    """Return the filesystem state that can change the inventory response."""
+    doc_dir = _page_dir(storage_dir)
+    if doc_dir is None:
+        return (_path_revision(storage_dir),)
+
+    page_files = sorted(doc_dir.glob("page_*.jpg"))
+    first_page_revision = (
+        (page_files[0].name, _path_revision(page_files[0])) if page_files else None
+    )
+    pdf_path = docs_dir / f"{doc_dir.name}.pdf"
+    return (
+        doc_dir.name,
+        _path_revision(doc_dir),
+        len(page_files),
+        first_page_revision,
+        _path_revision(pdf_path),
+    )
+
+
 @lru_cache(maxsize=8)
-def _cached_document_pages(storage_dir: Path, docs_dir: Path) -> DocumentPagesResponse:
-    """Build the on-disk inventory once per configured document location."""
+def _cached_document_pages(
+    storage_dir: Path, docs_dir: Path, _revision: tuple[object, ...]
+) -> DocumentPagesResponse:
+    """Build the on-disk inventory until the render set changes."""
     doc_dir = _page_dir(storage_dir)
     if doc_dir is None:
         return DocumentPagesResponse(
@@ -299,7 +330,8 @@ def document_pages(settings: SettingsDep) -> DocumentPagesResponse:
     Degrades instead of raising, like /health: a missing ingest is a real state
     the client must be able to render honestly, not a 500.
     """
-    return _cached_document_pages(settings.storage_dir, settings.docs_dir)
+    revision = _document_pages_revision(settings.storage_dir, settings.docs_dir)
+    return _cached_document_pages(settings.storage_dir, settings.docs_dir, revision)
 
 
 @router.get("/document/page/{page_number}", response_class=FileResponse)
@@ -321,5 +353,5 @@ def document_page(page_number: int, settings: SettingsDep) -> FileResponse:
     return FileResponse(
         path,
         media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        headers={"Cache-Control": "no-cache"},
     )

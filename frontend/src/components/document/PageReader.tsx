@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, FileText, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileText, RefreshCw, X } from 'lucide-react'
 
 import { ApiError, getDocumentPages, pageImageUrl } from '@/lib/api'
 import { formatSize } from '@/lib/document'
@@ -25,12 +25,31 @@ import { formatSize } from '@/lib/document'
  * empty state naming that, not a plausible-looking count.
  */
 export function PageReader() {
-  const { data, isPending, isError, error } = useQuery({
+  const { data, isPending, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['document-pages'],
     queryFn: ({ signal }) => getDocumentPages(signal),
-    staleTime: Infinity,
+    // The backend can finish rendering after the landing page has loaded.
+    // Refetch when entering the reader so an earlier empty response does not
+    // hide newly generated pages indefinitely.
+    staleTime: 30_000,
+    refetchOnMount: 'always',
   })
   const [openPage, setOpenPage] = useState<number | null>(null)
+  const [failedPages, setFailedPages] = useState<Set<number>>(() => new Set())
+
+  const markPageFailed = useCallback((page: number) => {
+    setFailedPages((current) => {
+      if (current.has(page)) return current
+      const next = new Set(current)
+      next.add(page)
+      return next
+    })
+  }, [])
+
+  const refresh = () => {
+    setFailedPages(new Set())
+    void refetch()
+  }
 
   // userMessage is the copy written for users; `message` is the internal one.
   // A failure here is not an empty ingest, so the two must read differently.
@@ -91,6 +110,16 @@ export function PageReader() {
 
         <DocumentFacts data={data} />
 
+        <button
+          type="button"
+          onClick={refresh}
+          disabled={isFetching}
+          className="mt-6 inline-flex items-center gap-2 border border-noir-border px-4 py-2 font-mono text-xs text-ivory/70 transition-colors hover:border-gold/60 hover:text-ivory disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} aria-hidden />
+          Refresh pages
+        </button>
+
         {isPending && <p className="mt-16 font-mono text-sm text-ivory/50">Reading the index…</p>}
 
         {isError && (
@@ -117,16 +146,18 @@ export function PageReader() {
                 <button
                   type="button"
                   onClick={() => setOpenPage(page)}
-                  className="group block w-full border border-noir-border bg-noir-light p-2 text-left transition-colors hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+                  disabled={failedPages.has(page)}
+                  className="group block w-full border border-noir-border bg-noir-light p-2 text-left transition-colors hover:border-gold/60 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-gold"
                 >
                   <span className="relative block w-full overflow-hidden bg-ivory-300">
-                    <img
-                      src={pageImageUrl(page)}
-                      // 139 full-resolution renders is ~19MB. The browser fetches
-                      // what is near the viewport and nothing else.
-                      loading="lazy"
-                      decoding="async"
+                    <PageImage
+                      page={page}
                       alt={`Page ${page}`}
+                      failed={failedPages.has(page)}
+                      onError={markPageFailed}
+                      // The browser fetches full-resolution renders near the
+                      // viewport rather than downloading the whole document.
+                      loading="lazy"
                       // object-contain, never object-cover: cropping a page
                       // render to fill a card hides evidence of what is on it.
                       className="block w-full object-contain"
@@ -134,13 +165,7 @@ export function PageReader() {
                       // dimensions, not a hardcoded 1024/1408. If the ingest's
                       // max edge is ever changed the grid follows it instead of
                       // reserving the wrong space and letterboxing every page.
-                      // Left unset when unknown, where object-contain still
-                      // prevents cropping.
-                      style={
-                        pageRatio
-                          ? { aspectRatio: pageRatio }
-                          : { minHeight: '1px' }
-                      }
+                      style={pageRatio ? { aspectRatio: pageRatio } : { minHeight: '1px' }}
                     />
                   </span>
                   <span className="mt-2 block font-mono text-xs text-ivory/60">
@@ -157,6 +182,8 @@ export function PageReader() {
         <PageLightbox
           page={openPage}
           pageCount={pageCount}
+          failed={failedPages.has(openPage)}
+          onImageError={markPageFailed}
           onClose={close}
           onStep={step}
         />
@@ -197,11 +224,15 @@ function DocumentFacts({ data }: { data: DocumentData | undefined }) {
 function PageLightbox({
   page,
   pageCount,
+  failed,
+  onImageError,
   onClose,
   onStep,
 }: {
   page: number
   pageCount: number
+  failed: boolean
+  onImageError: (page: number) => void
   onClose: () => void
   onStep: (delta: number) => void
 }) {
@@ -236,9 +267,11 @@ function PageLightbox({
       </div>
 
       <div className="flex min-h-0 flex-1 items-center justify-center p-4">
-        <img
-          src={pageImageUrl(page)}
+        <PageImage
+          page={page}
           alt={`Page ${page}`}
+          failed={failed}
+          onError={onImageError}
           className="max-h-full max-w-full object-contain"
         />
       </div>
@@ -263,6 +296,49 @@ function PageLightbox({
         </LightboxButton>
       </div>
     </div>
+  )
+}
+
+function PageImage({
+  page,
+  alt,
+  failed,
+  onError,
+  className,
+  style,
+  loading,
+}: {
+  page: number
+  alt: string
+  failed: boolean
+  onError: (page: number) => void
+  className: string
+  style?: React.CSSProperties
+  loading?: 'eager' | 'lazy'
+}) {
+  if (failed) {
+    return (
+      <span
+        role="img"
+        aria-label={`${alt} unavailable`}
+        className="flex min-h-32 items-center justify-center bg-noir-light p-4 text-center font-mono text-xs text-ivory/70"
+        style={style}
+      >
+        Page image unavailable
+      </span>
+    )
+  }
+
+  return (
+    <img
+      src={pageImageUrl(page)}
+      loading={loading}
+      decoding="async"
+      alt={alt}
+      className={className}
+      onError={() => onError(page)}
+      style={style}
+    />
   )
 }
 

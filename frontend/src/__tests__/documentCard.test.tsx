@@ -336,7 +336,7 @@ describe('document card actions', () => {
     renderApp()
     await waitFor(() => expect(pagesList().getByText('p.128')).toBeInTheDocument())
 
-    expect(card().getByRole('link', { name: /reader/i })).toHaveAttribute('href', '/document')
+    expect(card().getByRole('link', { name: /reader/i })).toHaveAttribute('href', '/documents')
     expect(card().getByRole('link', { name: /ask about this document/i })).toHaveAttribute(
       'href',
       '/chat',

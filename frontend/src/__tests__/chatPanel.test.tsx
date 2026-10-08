@@ -213,7 +213,7 @@ describe('panel identity comes from /health, not a hardcoded banner', () => {
     await waitFor(() => expect(panel().getByText('gemini-2.5-flash')).toBeInTheDocument())
 
     expect(panel().getByText(DOCUMENT.filename)).toBeInTheDocument()
-    expect(panel().getByRole('link', { name: /open reader/i })).toHaveAttribute('href', '/document')
+    expect(panel().getByRole('link', { name: /open reader/i })).toHaveAttribute('href', '/documents')
   })
 })
 

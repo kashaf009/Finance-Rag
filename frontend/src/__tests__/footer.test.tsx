@@ -22,7 +22,7 @@ function footer() {
 
 describe('footer', () => {
   it('renders on every route', () => {
-    for (const path of ['/', '/chat', '/document']) {
+    for (const path of ['/', '/chat', '/document', '/documents']) {
       const { unmount } = renderApp(path)
       expect(screen.getByRole('contentinfo'), path).toBeInTheDocument()
       unmount()
